@@ -82,6 +82,26 @@ function pick(input: unknown): string {
   return typeof input === "string" ? input.trim() : "";
 }
 
+function fromUrl(): Partial<PluginContext> {
+  if (typeof window === "undefined") return {};
+  const url = new URL(window.location.href);
+  const params = new URLSearchParams(url.search);
+  const hash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
+  const hashParams = new URLSearchParams(hash.includes("?") ? hash.split("?")[1] : hash);
+  const read = (...keys: string[]) => {
+    for (const key of keys) {
+      const value = pick(params.get(key)) || pick(hashParams.get(key));
+      if (value) return value;
+    }
+    return "";
+  };
+  return {
+    appToken: read("appToken", "app_token", "baseToken", "base_token"),
+    tableId: read("tableId", "table_id"),
+    userOpenId: read("openId", "open_id", "userId", "user_id", "larkUserId", "lark_user_id"),
+  };
+}
+
 async function readContext(): Promise<PluginContext | null> {
   const w = window as Window & {
     feishu?: {
@@ -95,16 +115,27 @@ async function readContext(): Promise<PluginContext | null> {
     tt?: { getEnvInfo?: () => Promise<Record<string, unknown>> };
   };
 
-  let appToken = pick(w.feishu?.appToken) || pick(w.feishu?.baseToken);
-  let tableId = pick(w.feishu?.tableId);
-  let userOpenId = pick(w.feishu?.openId) || pick(w.feishu?.userId);
+  const urlCtx = fromUrl();
+  let appToken = pick(w.feishu?.appToken) || pick(w.feishu?.baseToken) || pick(urlCtx.appToken);
+  let tableId = pick(w.feishu?.tableId) || pick(urlCtx.tableId);
+  let userOpenId = pick(w.feishu?.openId) || pick(w.feishu?.userId) || pick(urlCtx.userOpenId);
 
   if ((!appToken || !tableId || !userOpenId) && w.feishu?.getContext) {
     try {
       const ctx = await w.feishu.getContext();
-      appToken = appToken || pick(ctx.appToken) || pick(ctx.baseToken);
-      tableId = tableId || pick(ctx.tableId);
-      userOpenId = userOpenId || pick(ctx.openId) || pick(ctx.userId);
+      appToken =
+        appToken ||
+        pick(ctx.appToken) ||
+        pick(ctx.baseToken) ||
+        pick((ctx as { bitable?: { appToken?: string; baseToken?: string } }).bitable?.appToken) ||
+        pick((ctx as { bitable?: { appToken?: string; baseToken?: string } }).bitable?.baseToken);
+      tableId = tableId || pick(ctx.tableId) || pick((ctx as { bitable?: { tableId?: string } }).bitable?.tableId);
+      userOpenId =
+        userOpenId ||
+        pick(ctx.openId) ||
+        pick(ctx.userId) ||
+        pick((ctx as { user?: { openId?: string; userId?: string } }).user?.openId) ||
+        pick((ctx as { user?: { openId?: string; userId?: string } }).user?.userId);
     } catch {
       // ignore
     }
@@ -113,9 +144,19 @@ async function readContext(): Promise<PluginContext | null> {
   if ((!appToken || !tableId || !userOpenId) && w.tt?.getEnvInfo) {
     try {
       const env = await w.tt.getEnvInfo();
-      appToken = appToken || pick(env.appToken);
-      tableId = tableId || pick(env.tableId);
-      userOpenId = userOpenId || pick(env.openId) || pick(env.userId);
+      appToken =
+        appToken ||
+        pick(env.appToken) ||
+        pick(env.baseToken) ||
+        pick((env as { bitable?: { appToken?: string; baseToken?: string } }).bitable?.appToken) ||
+        pick((env as { bitable?: { appToken?: string; baseToken?: string } }).bitable?.baseToken);
+      tableId = tableId || pick(env.tableId) || pick((env as { bitable?: { tableId?: string } }).bitable?.tableId);
+      userOpenId =
+        userOpenId ||
+        pick(env.openId) ||
+        pick(env.userId) ||
+        pick((env as { user?: { openId?: string; userId?: string } }).user?.openId) ||
+        pick((env as { user?: { openId?: string; userId?: string } }).user?.userId);
     } catch {
       // ignore
     }
