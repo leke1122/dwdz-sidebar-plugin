@@ -112,8 +112,42 @@ async function readContext(): Promise<PluginContext | null> {
       userId?: string;
       getContext?: () => Promise<Record<string, unknown>>;
     };
-    tt?: { getEnvInfo?: () => Promise<Record<string, unknown>> };
+    tt?: {
+      getEnvInfo?: ((arg?: unknown) => Promise<Record<string, unknown>> | void) | undefined;
+      getContext?: ((arg?: unknown) => Promise<Record<string, unknown>> | void) | undefined;
+    };
   };
+  async function callSdk(
+    fn?: ((arg?: unknown) => Promise<Record<string, unknown>> | void) | undefined
+  ): Promise<Record<string, unknown> | null> {
+    if (!fn) return null;
+    try {
+      const maybe = fn();
+      if (maybe && typeof (maybe as Promise<Record<string, unknown>>).then === "function") {
+        return (await maybe) as Record<string, unknown>;
+      }
+    } catch {
+      // try callback mode
+    }
+    try {
+      return await new Promise<Record<string, unknown> | null>((resolve) => {
+        let done = false;
+        const finish = (value: Record<string, unknown> | null) => {
+          if (done) return;
+          done = true;
+          resolve(value);
+        };
+        fn({
+          success: (res: Record<string, unknown>) => finish(res),
+          fail: () => finish(null),
+        });
+        setTimeout(() => finish(null), 1200);
+      });
+    } catch {
+      return null;
+    }
+  }
+
 
   const urlCtx = fromUrl();
   let appToken = pick(w.feishu?.appToken) || pick(w.feishu?.baseToken) || pick(urlCtx.appToken);
@@ -141,9 +175,9 @@ async function readContext(): Promise<PluginContext | null> {
     }
   }
 
-  if ((!appToken || !tableId || !userOpenId) && w.tt?.getEnvInfo) {
+  if ((!appToken || !tableId || !userOpenId) && (w.tt?.getEnvInfo || w.tt?.getContext)) {
     try {
-      const env = await w.tt.getEnvInfo();
+      const env = (await callSdk(w.tt?.getContext)) || (await callSdk(w.tt?.getEnvInfo)) || {};
       appToken =
         appToken ||
         pick(env.appToken) ||
