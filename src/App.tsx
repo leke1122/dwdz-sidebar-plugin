@@ -6,8 +6,14 @@ type Row = { customerName: string; salesAmount: number; paymentAmount: number; d
 
 type PluginContext = { appToken: string; tableId: string; userOpenId: string };
 type Lang = "zh-CN" | "en-US";
+type LoadStats = { business: number; settlement: number; total: number };
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || "https://api.zxaigc.online").replace(/\/$/, "");
+const TEST_DEFAULTS = {
+  appToken: "TBU4buNX3acSVzs8M5FcN168nAc",
+  businessTableId: "tblTuBqWx31grIHS",
+  settlementTableId: "tblS7mZNU0Kd9h2S",
+};
 
 const I18N: Record<
   Lang,
@@ -209,8 +215,8 @@ export function App() {
   const [lang, setLang] = useState<Lang>("zh-CN");
   const [ctx, setCtx] = useState<PluginContext | null>(null);
   const [mode, setMode] = useState<ReconciliationMode>("sales_receipt");
-  const [businessTableId, setBusinessTableId] = useState("");
-  const [settlementTableId, setSettlementTableId] = useState("");
+  const [businessTableId, setBusinessTableId] = useState(TEST_DEFAULTS.businessTableId);
+  const [settlementTableId, setSettlementTableId] = useState(TEST_DEFAULTS.settlementTableId);
   const [businessFields, setBusinessFields] = useState<FieldOption[]>([]);
   const [settlementFields, setSettlementFields] = useState<FieldOption[]>([]);
   const [businessCustomerField, setBusinessCustomerField] = useState("");
@@ -228,8 +234,10 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [activationCode, setActivationCode] = useState("");
   const [contextHint, setContextHint] = useState("");
-  const [manualAppToken, setManualAppToken] = useState("");
+  const [manualAppToken, setManualAppToken] = useState(TEST_DEFAULTS.appToken);
   const [manualUserId, setManualUserId] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [loadStats, setLoadStats] = useState<LoadStats | null>(null);
 
   const needActivation = remainingQuota !== null && remainingQuota <= 0;
   const modeLabel = mode === "purchase_payment" ? ["采购", "付款", "供应商"] : ["销售", "收款", "客户"];
@@ -264,15 +272,15 @@ export function App() {
     readContext().then((c) => {
       if (c) {
         setCtx(c);
-        setBusinessTableId(c.tableId);
-        setSettlementTableId(c.tableId);
+        setBusinessTableId((prev) => prev || c.tableId);
+        setSettlementTableId((prev) => prev || c.tableId);
         setContextHint(t.envReady);
         setManualAppToken(c.appToken);
         setManualUserId(c.userOpenId);
       } else {
         setMessage(t.envNotReady);
         const urlCtx = fromUrl();
-        setManualAppToken(urlCtx.appToken ?? "");
+        setManualAppToken(urlCtx.appToken ?? TEST_DEFAULTS.appToken);
         setManualUserId(cachedUserId || `debug-${Date.now().toString(36)}`);
       }
     });
@@ -334,6 +342,7 @@ export function App() {
             amountField: settlementAmountField || undefined,
             dateField: settlementDateField || undefined,
           },
+          customerName: customerName.trim() || undefined,
           dateRange: { start: startDate, end: endDate },
         }),
       });
@@ -345,6 +354,10 @@ export function App() {
       setRows(j.rows ?? []);
       setExportToken(j.exportToken ?? "");
       setRemainingQuota(j.quota?.remainingQuota ?? remainingQuota);
+      const businessCount = Number(j.loadStrategy?.businessRecordCount ?? 0);
+      const settlementCount = Number(j.loadStrategy?.settlementRecordCount ?? 0);
+      const totalCount = businessCount + settlementCount;
+      setLoadStats({ business: businessCount, settlement: settlementCount, total: totalCount });
       setMessage(`已生成 ${j.rows?.length ?? 0} 条记录。`);
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "生成失败");
@@ -416,6 +429,8 @@ export function App() {
         <input value={businessTableId} onChange={(e) => setBusinessTableId(e.target.value)} />
         <label>{modeLabel[1]}表 table_id</label>
         <input value={settlementTableId} onChange={(e) => setSettlementTableId(e.target.value)} />
+        <label>{modeLabel[2]}名称（可选）</label>
+        <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="例如：测试客户A公司" />
 
         <div className="row">
           <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
@@ -499,6 +514,13 @@ export function App() {
             {t.activate}
           </button>
         </div>
+      ) : null}
+
+      {loadStats ? (
+        <p className="muted">
+          {modeLabel[0]}表读取条数：{loadStats.business}；{modeLabel[1]}表读取条数：{loadStats.settlement}；总条数：
+          {loadStats.total}
+        </p>
       ) : null}
 
       <div className="row" style={{ marginTop: 8 }}>
