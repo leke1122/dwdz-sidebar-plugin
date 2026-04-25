@@ -237,6 +237,7 @@ export function App() {
   const [manualAppToken, setManualAppToken] = useState(TEST_DEFAULTS.appToken);
   const [manualUserId, setManualUserId] = useState("");
   const [customerName, setCustomerName] = useState("");
+  const [customerOptions, setCustomerOptions] = useState<string[]>([]);
   const [loadStats, setLoadStats] = useState<LoadStats | null>(null);
 
   const needActivation = remainingQuota !== null && remainingQuota <= 0;
@@ -305,6 +306,8 @@ export function App() {
       if (!s.ok || !sj.success) throw new Error(sj.message || "读取结算表字段失败");
       setBusinessFields(bj.fields ?? []);
       setSettlementFields(sj.fields ?? []);
+      setCustomerOptions([]);
+      setCustomerName("");
       setBusinessCustomerField("");
       setBusinessAmountField("");
       setBusinessDateField("");
@@ -352,6 +355,7 @@ export function App() {
         throw new Error(j.message || "生成失败");
       }
       setRows(j.rows ?? []);
+      setCustomerOptions(Array.isArray(j.customerOptions) ? j.customerOptions : []);
       setExportToken(j.exportToken ?? "");
       setRemainingQuota(j.quota?.remainingQuota ?? remainingQuota);
       const businessCount = Number(j.loadStrategy?.businessRecordCount ?? 0);
@@ -430,7 +434,14 @@ export function App() {
         <label>{modeLabel[1]}表 table_id</label>
         <input value={settlementTableId} onChange={(e) => setSettlementTableId(e.target.value)} />
         <label>{modeLabel[2]}名称（可选）</label>
-        <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="例如：测试客户A公司" />
+        <select value={customerName} onChange={(e) => setCustomerName(e.target.value)}>
+          <option value="">全部{modeLabel[2]}</option>
+          {customerOptions.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
 
         <div className="row">
           <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
@@ -446,62 +457,69 @@ export function App() {
 
       <details style={{ marginTop: 10 }}>
         <summary>字段映射（建议先读取字段）</summary>
-        <div className="grid" style={{ marginTop: 8 }}>
-          <label>{modeLabel[0]}表客户字段</label>
-          <select value={businessCustomerField} onChange={(e) => setBusinessCustomerField(e.target.value)}>
-            <option value="">自动识别</option>
-            {businessFields.map((f) => (
-              <option key={`bc-${f.id}`} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </select>
-          <label>{modeLabel[0]}表金额字段</label>
-          <select value={businessAmountField} onChange={(e) => setBusinessAmountField(e.target.value)}>
-            <option value="">自动识别</option>
-            {businessFields.map((f) => (
-              <option key={`ba-${f.id}`} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </select>
-          <label>{modeLabel[0]}表日期字段</label>
-          <select value={businessDateField} onChange={(e) => setBusinessDateField(e.target.value)}>
-            <option value="">自动识别</option>
-            {businessFields.map((f) => (
-              <option key={`bd-${f.id}`} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </select>
-
-          <label>{modeLabel[1]}表客户字段</label>
-          <select value={settlementCustomerField} onChange={(e) => setSettlementCustomerField(e.target.value)}>
-            <option value="">自动识别</option>
-            {settlementFields.map((f) => (
-              <option key={`sc-${f.id}`} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </select>
-          <label>{modeLabel[1]}表金额字段</label>
-          <select value={settlementAmountField} onChange={(e) => setSettlementAmountField(e.target.value)}>
-            <option value="">自动识别</option>
-            {settlementFields.map((f) => (
-              <option key={`sa-${f.id}`} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </select>
-          <label>{modeLabel[1]}表日期字段</label>
-          <select value={settlementDateField} onChange={(e) => setSettlementDateField(e.target.value)}>
-            <option value="">自动识别</option>
-            {settlementFields.map((f) => (
-              <option key={`sd-${f.id}`} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </select>
+        <div style={{ marginTop: 8, padding: 8, border: "1px solid #e5e7eb", borderRadius: 8 }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>{modeLabel[0]}表映射</div>
+          <div className="grid">
+            <label>{modeLabel[0]}表客户字段</label>
+            <select value={businessCustomerField} onChange={(e) => setBusinessCustomerField(e.target.value)}>
+              <option value="">自动识别</option>
+              {businessFields.map((f) => (
+                <option key={`bc-${f.id}`} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+            <label>{modeLabel[0]}表金额字段</label>
+            <select value={businessAmountField} onChange={(e) => setBusinessAmountField(e.target.value)}>
+              <option value="">自动识别</option>
+              {businessFields.map((f) => (
+                <option key={`ba-${f.id}`} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+            <label>{modeLabel[0]}表日期字段</label>
+            <select value={businessDateField} onChange={(e) => setBusinessDateField(e.target.value)}>
+              <option value="">自动识别</option>
+              {businessFields.map((f) => (
+                <option key={`bd-${f.id}`} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div style={{ marginTop: 8, padding: 8, border: "1px solid #e5e7eb", borderRadius: 8 }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>{modeLabel[1]}表映射</div>
+          <div className="grid">
+            <label>{modeLabel[1]}表客户字段</label>
+            <select value={settlementCustomerField} onChange={(e) => setSettlementCustomerField(e.target.value)}>
+              <option value="">自动识别</option>
+              {settlementFields.map((f) => (
+                <option key={`sc-${f.id}`} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+            <label>{modeLabel[1]}表金额字段</label>
+            <select value={settlementAmountField} onChange={(e) => setSettlementAmountField(e.target.value)}>
+              <option value="">自动识别</option>
+              {settlementFields.map((f) => (
+                <option key={`sa-${f.id}`} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+            <label>{modeLabel[1]}表日期字段</label>
+            <select value={settlementDateField} onChange={(e) => setSettlementDateField(e.target.value)}>
+              <option value="">自动识别</option>
+              {settlementFields.map((f) => (
+                <option key={`sd-${f.id}`} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </details>
 
