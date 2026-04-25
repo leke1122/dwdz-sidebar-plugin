@@ -226,7 +226,7 @@ export function App() {
   const [settlementCustomerField, setSettlementCustomerField] = useState("");
   const [settlementAmountField, setSettlementAmountField] = useState("");
   const [settlementDateField, setSettlementDateField] = useState("");
-  const [viewType, setViewType] = useState<"summary" | "ledger">("summary");
+  // Simplify UX: always generate per-customer ledger statement.
   const [ledger, setLedger] = useState<LedgerRow[]>([]);
   const [ledgerExportToken, setLedgerExportToken] = useState("");
   const [ledgerHeaders, setLedgerHeaders] = useState<string[]>([]);
@@ -372,46 +372,8 @@ export function App() {
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
       setLastIdempotencyKey(idempotencyKey);
-      if (viewType === "ledger") {
-        if (!customerName) throw new Error("明细对账单需要先选择客户名称");
-        const resp = await fetch(api("/api/generate-ledger"), {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-idempotency-key": idempotencyKey, ...headers },
-          body: JSON.stringify({
-            mode,
-            businessTable: {
-              tableId: businessTableId,
-              customerField: businessCustomerField || undefined,
-              amountField: businessAmountField || undefined,
-              dateField: businessDateField || undefined,
-              displayFields: businessDisplayFields,
-            },
-            settlementTable: {
-              tableId: settlementTableId,
-              customerField: settlementCustomerField || undefined,
-              amountField: settlementAmountField || undefined,
-              dateField: settlementDateField || undefined,
-              displayFields: settlementDisplayFields,
-            },
-            customerName: customerName.trim() || undefined,
-            dateRange: { start: startDate, end: endDate },
-          }),
-        });
-        const j = await resp.json();
-        if (!resp.ok || !j.success) {
-          if (resp.status === 402) setRemainingQuota(0);
-          throw new Error(j.message || "生成失败");
-        }
-        setLedger(Array.isArray(j.ledger) ? j.ledger : []);
-        setLedgerHeaders(Array.isArray(j.headers) ? j.headers : []);
-        setLedgerExportToken(j.exportToken ?? "");
-        setRows([]);
-        setExportToken("");
-        setRemainingQuota(j.quota?.remainingQuota ?? remainingQuota);
-        setMessage(`已生成 ${j.ledger?.length ?? 0} 条明细。`);
-        return;
-      }
-      const resp = await fetch(api("/api/generate-reconciliation"), {
+      if (!customerName) throw new Error(`请选择${modeLabel[2]}名称后再生成对账单`);
+      const resp = await fetch(api("/api/generate-ledger"), {
         method: "POST",
         headers: { "content-type": "application/json", "x-idempotency-key": idempotencyKey, ...headers },
         body: JSON.stringify({
@@ -421,14 +383,16 @@ export function App() {
             customerField: businessCustomerField || undefined,
             amountField: businessAmountField || undefined,
             dateField: businessDateField || undefined,
+            displayFields: businessDisplayFields,
           },
           settlementTable: {
             tableId: settlementTableId,
             customerField: settlementCustomerField || undefined,
             amountField: settlementAmountField || undefined,
             dateField: settlementDateField || undefined,
+            displayFields: settlementDisplayFields,
           },
-          customerName: customerName.trim() || undefined,
+          customerName: customerName.trim(),
           dateRange: { start: startDate, end: endDate },
         }),
       });
@@ -437,22 +401,15 @@ export function App() {
         if (resp.status === 402) setRemainingQuota(0);
         throw new Error(j.message || "生成失败");
       }
-      setRows(j.rows ?? []);
+      setLedger(Array.isArray(j.ledger) ? j.ledger : []);
+      setLedgerHeaders(Array.isArray(j.headers) ? j.headers : []);
+      setLedgerExportToken(j.exportToken ?? "");
+      setRows([]);
       setLedger([]);
       setLedgerExportToken("");
       setLedgerHeaders([]);
-      const generatedOptions = Array.isArray(j.customerOptions) ? j.customerOptions : [];
-      setCustomerOptions((prev) => (generatedOptions.length ? generatedOptions : prev));
-      setExportToken(j.exportToken ?? "");
       setRemainingQuota(j.quota?.remainingQuota ?? remainingQuota);
-      const businessCount = Number(j.loadStrategy?.businessRecordCount ?? 0);
-      const settlementCount = Number(j.loadStrategy?.settlementRecordCount ?? 0);
-      const totalCount = businessCount + settlementCount;
-      setLoadStats({ business: businessCount, settlement: settlementCount, total: totalCount });
-      setDebugInfo((prev) =>
-        `${prev ? `${prev}；` : ""}生成候选:${generatedOptions.length}；结果:${j.rows?.length ?? 0}`
-      );
-      setMessage(`已生成 ${j.rows?.length ?? 0} 条记录。`);
+      setMessage(`已生成 ${j.ledger?.length ?? 0} 条明细。`);
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "生成失败");
     } finally {
@@ -519,19 +476,13 @@ export function App() {
           <option value="sales_receipt">{t.modeSales}</option>
           <option value="purchase_payment">{t.modePurchase}</option>
         </select>
-        <label>对账单类型</label>
-        <select value={viewType} onChange={(e) => setViewType(e.target.value as "summary" | "ledger")}>
-          <option value="summary">汇总（按客户求和）</option>
-          <option value="ledger">明细（流水+结余）</option>
-        </select>
-
         <label>{modeLabel[0]}表 table_id</label>
         <input value={businessTableId} onChange={(e) => setBusinessTableId(e.target.value)} />
         <label>{modeLabel[1]}表 table_id</label>
         <input value={settlementTableId} onChange={(e) => setSettlementTableId(e.target.value)} />
-        <label>{modeLabel[2]}名称（可选）</label>
+        <label>{modeLabel[2]}名称（必选）</label>
         <select value={customerName} onChange={(e) => setCustomerName(e.target.value)}>
-          <option value="">全部{modeLabel[2]}</option>
+          <option value="">请选择{modeLabel[2]}</option>
           {customerOptions.map((name) => (
             <option key={name} value={name}>
               {name}
@@ -583,21 +534,34 @@ export function App() {
                 </option>
               ))}
             </select>
-            <label>{modeLabel[0]}表显示字段（可多选）</label>
-            <select
-              multiple
-              value={businessDisplayFields}
-              onChange={(e) => setBusinessDisplayFields(Array.from(e.target.selectedOptions).map((o) => o.value))}
-              style={{ minHeight: 96 }}
-            >
-              {businessFields
-                .filter((f) => ![businessCustomerField, businessAmountField, businessDateField].includes(f.id))
-                .map((f) => (
-                  <option key={`bshow-${f.id}`} value={f.id}>
-                    {f.name}
-                  </option>
-                ))}
-            </select>
+            <label>{modeLabel[0]}表显示字段（可勾选）</label>
+            <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 8 }}>
+              <div className="muted" style={{ marginBottom: 6 }}>
+                已选：{businessDisplayFields.length ? businessDisplayFields.map((id) => businessFields.find((f) => f.id === id)?.name ?? id).join("、") : "无"}
+              </div>
+              <div style={{ maxHeight: 160, overflow: "auto", display: "grid", gap: 6 }}>
+                {businessFields
+                  .filter((f) => ![businessCustomerField, businessAmountField, businessDateField].includes(f.id))
+                  .map((f) => {
+                    const checked = businessDisplayFields.includes(f.id);
+                    return (
+                      <label key={`bshow-${f.id}`} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const next = e.target.checked
+                              ? Array.from(new Set([...businessDisplayFields, f.id]))
+                              : businessDisplayFields.filter((x) => x !== f.id);
+                            setBusinessDisplayFields(next);
+                          }}
+                        />
+                        <span>{f.name}</span>
+                      </label>
+                    );
+                  })}
+              </div>
+            </div>
           </div>
         </div>
         <div style={{ marginTop: 8, padding: 8, border: "1px solid #e5e7eb", borderRadius: 8 }}>
@@ -630,21 +594,34 @@ export function App() {
                 </option>
               ))}
             </select>
-            <label>{modeLabel[1]}表显示字段（可多选）</label>
-            <select
-              multiple
-              value={settlementDisplayFields}
-              onChange={(e) => setSettlementDisplayFields(Array.from(e.target.selectedOptions).map((o) => o.value))}
-              style={{ minHeight: 96 }}
-            >
-              {settlementFields
-                .filter((f) => ![settlementCustomerField, settlementAmountField, settlementDateField].includes(f.id))
-                .map((f) => (
-                  <option key={`sshow-${f.id}`} value={f.id}>
-                    {f.name}
-                  </option>
-                ))}
-            </select>
+            <label>{modeLabel[1]}表显示字段（可勾选）</label>
+            <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 8 }}>
+              <div className="muted" style={{ marginBottom: 6 }}>
+                已选：{settlementDisplayFields.length ? settlementDisplayFields.map((id) => settlementFields.find((f) => f.id === id)?.name ?? id).join("、") : "无"}
+              </div>
+              <div style={{ maxHeight: 160, overflow: "auto", display: "grid", gap: 6 }}>
+                {settlementFields
+                  .filter((f) => ![settlementCustomerField, settlementAmountField, settlementDateField].includes(f.id))
+                  .map((f) => {
+                    const checked = settlementDisplayFields.includes(f.id);
+                    return (
+                      <label key={`sshow-${f.id}`} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const next = e.target.checked
+                              ? Array.from(new Set([...settlementDisplayFields, f.id]))
+                              : settlementDisplayFields.filter((x) => x !== f.id);
+                            setSettlementDisplayFields(next);
+                          }}
+                        />
+                        <span>{f.name}</span>
+                      </label>
+                    );
+                  })}
+              </div>
+            </div>
           </div>
         </div>
       </details>
@@ -698,7 +675,7 @@ export function App() {
       </div>
 
       {message ? <p>{message}</p> : null}
-      {loadingHint ? <p className="muted">{loadingHint}</p> : null}
+      {loadingHint ? <p style={{ fontWeight: 700, color: "#b42318" }}>{loadingHint}</p> : null}
       {lastIdempotencyKey ? <p className="muted">请求ID：{lastIdempotencyKey.slice(0, 8)}…</p> : null}
 
       {rows.length > 0 ? (
