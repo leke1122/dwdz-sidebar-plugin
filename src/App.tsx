@@ -239,6 +239,7 @@ export function App() {
   const [customerName, setCustomerName] = useState("");
   const [customerOptions, setCustomerOptions] = useState<string[]>([]);
   const [loadStats, setLoadStats] = useState<LoadStats | null>(null);
+  const [debugInfo, setDebugInfo] = useState("");
 
   const needActivation = remainingQuota !== null && remainingQuota <= 0;
   const modeLabel = mode === "purchase_payment" ? ["采购", "付款", "供应商"] : ["销售", "收款", "客户"];
@@ -297,6 +298,7 @@ export function App() {
     if (!effectiveCtx) return;
     setLoading(true);
     setMessage("");
+    setDebugInfo("");
     try {
       const b = await fetch(api(`/api/get-table-fields?tableId=${encodeURIComponent(businessTableId)}`), { headers });
       const bj = await b.json();
@@ -327,6 +329,13 @@ export function App() {
       const optionsJson = await optionsResp.json();
       if (optionsResp.ok && optionsJson.success) {
         setCustomerOptions(Array.isArray(optionsJson.options) ? optionsJson.options : []);
+        const debug = optionsJson.debug || {};
+        const optionCount = Array.isArray(optionsJson.options) ? optionsJson.options.length : 0;
+        setDebugInfo(
+          `客户选项:${optionCount}；销售客户字段:${debug.businessFieldId ?? "-"}(${debug.businessOptionsCount ?? 0})；收款客户字段:${debug.settlementFieldId ?? "-"}(${debug.settlementOptionsCount ?? 0})`
+        );
+      } else {
+        setDebugInfo(`客户选项接口失败: ${optionsJson.message ?? "unknown"}`);
       }
       setMessage("字段读取成功。");
     } catch (e) {
@@ -376,6 +385,9 @@ export function App() {
       const settlementCount = Number(j.loadStrategy?.settlementRecordCount ?? 0);
       const totalCount = businessCount + settlementCount;
       setLoadStats({ business: businessCount, settlement: settlementCount, total: totalCount });
+      setDebugInfo((prev) =>
+        `${prev ? `${prev}；` : ""}生成候选:${generatedOptions.length}；结果:${j.rows?.length ?? 0}`
+      );
       setMessage(`已生成 ${j.rows?.length ?? 0} 条记录。`);
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "生成失败");
@@ -554,6 +566,7 @@ export function App() {
           {loadStats.total}
         </p>
       ) : null}
+      {debugInfo ? <p className="muted">调试：{debugInfo}</p> : null}
 
       <div className="row" style={{ marginTop: 8 }}>
         <a href={exportToken ? api(`/api/export-file?token=${encodeURIComponent(exportToken)}&format=xlsx`) : "#"}>{t.exportExcel}</a>
