@@ -405,9 +405,6 @@ export function App() {
       setLedgerHeaders(Array.isArray(j.headers) ? j.headers : []);
       setLedgerExportToken(j.exportToken ?? "");
       setRows([]);
-      setLedger([]);
-      setLedgerExportToken("");
-      setLedgerHeaders([]);
       setRemainingQuota(j.quota?.remainingQuota ?? remainingQuota);
       setMessage(`已生成 ${j.ledger?.length ?? 0} 条明细。`);
     } catch (e) {
@@ -648,26 +645,18 @@ export function App() {
       <div className="row" style={{ marginTop: 8 }}>
         <a
           href={
-            viewType === "ledger"
-              ? ledgerExportToken
-                ? api(`/api/export-ledger-file?token=${encodeURIComponent(ledgerExportToken)}&format=xlsx`)
-                : "#"
-              : exportToken
-                ? api(`/api/export-file?token=${encodeURIComponent(exportToken)}&format=xlsx`)
-                : "#"
+            ledgerExportToken
+              ? api(`/api/export-ledger-file?token=${encodeURIComponent(ledgerExportToken)}&format=xlsx`)
+              : "#"
           }
         >
           {t.exportExcel}
         </a>
         <a
           href={
-            viewType === "ledger"
-              ? ledgerExportToken
-                ? api(`/api/export-ledger-file?token=${encodeURIComponent(ledgerExportToken)}&format=csv`)
-                : "#"
-              : exportToken
-                ? api(`/api/export-file?token=${encodeURIComponent(exportToken)}&format=csv`)
-                : "#"
+            ledgerExportToken
+              ? api(`/api/export-ledger-file?token=${encodeURIComponent(ledgerExportToken)}&format=csv`)
+              : "#"
           }
         >
           {t.exportCsv}
