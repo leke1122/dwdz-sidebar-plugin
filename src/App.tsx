@@ -7,15 +7,7 @@ type Row = { customerName: string; salesAmount: number; paymentAmount: number; d
 type PluginContext = { appToken: string; tableId: string; userOpenId: string };
 type Lang = "zh-CN" | "en-US";
 type LoadStats = { business: number; settlement: number; total: number };
-type LedgerRow = {
-  date: string;
-  type: string;
-  summary: string;
-  remark: string;
-  businessAmount: number;
-  settlementAmount: number;
-  balance: number;
-};
+type LedgerRow = Record<string, string | number>;
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || "https://api.zxaigc.online").replace(/\/$/, "");
 const TEST_DEFAULTS = {
@@ -237,6 +229,9 @@ export function App() {
   const [viewType, setViewType] = useState<"summary" | "ledger">("summary");
   const [ledger, setLedger] = useState<LedgerRow[]>([]);
   const [ledgerExportToken, setLedgerExportToken] = useState("");
+  const [ledgerHeaders, setLedgerHeaders] = useState<string[]>([]);
+  const [businessDisplayFields, setBusinessDisplayFields] = useState<string[]>([]);
+  const [settlementDisplayFields, setSettlementDisplayFields] = useState<string[]>([]);
   const [remainingQuota, setRemainingQuota] = useState<number | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [exportToken, setExportToken] = useState("");
@@ -328,6 +323,9 @@ export function App() {
       setSettlementCustomerField("");
       setSettlementAmountField("");
       setSettlementDateField("");
+      setBusinessDisplayFields([]);
+      setSettlementDisplayFields([]);
+      setLedgerHeaders([]);
       setRemainingQuota(bj.quota?.remainingQuota ?? sj.quota?.remainingQuota ?? null);
       const optionsResp = await fetch(api("/api/customer-options"), {
         method: "POST",
@@ -376,12 +374,14 @@ export function App() {
               customerField: businessCustomerField || undefined,
               amountField: businessAmountField || undefined,
               dateField: businessDateField || undefined,
+              displayFields: businessDisplayFields,
             },
             settlementTable: {
               tableId: settlementTableId,
               customerField: settlementCustomerField || undefined,
               amountField: settlementAmountField || undefined,
               dateField: settlementDateField || undefined,
+              displayFields: settlementDisplayFields,
             },
             customerName: customerName.trim() || undefined,
             dateRange: { start: startDate, end: endDate },
@@ -393,6 +393,7 @@ export function App() {
           throw new Error(j.message || "生成失败");
         }
         setLedger(Array.isArray(j.ledger) ? j.ledger : []);
+        setLedgerHeaders(Array.isArray(j.headers) ? j.headers : []);
         setLedgerExportToken(j.exportToken ?? "");
         setRows([]);
         setExportToken("");
@@ -429,6 +430,7 @@ export function App() {
       setRows(j.rows ?? []);
       setLedger([]);
       setLedgerExportToken("");
+      setLedgerHeaders([]);
       const generatedOptions = Array.isArray(j.customerOptions) ? j.customerOptions : [];
       setCustomerOptions((prev) => (generatedOptions.length ? generatedOptions : prev));
       setExportToken(j.exportToken ?? "");
@@ -570,6 +572,21 @@ export function App() {
                 </option>
               ))}
             </select>
+            <label>{modeLabel[0]}表显示字段（可多选）</label>
+            <select
+              multiple
+              value={businessDisplayFields}
+              onChange={(e) => setBusinessDisplayFields(Array.from(e.target.selectedOptions).map((o) => o.value))}
+              style={{ minHeight: 96 }}
+            >
+              {businessFields
+                .filter((f) => ![businessCustomerField, businessAmountField, businessDateField].includes(f.id))
+                .map((f) => (
+                  <option key={`bshow-${f.id}`} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+            </select>
           </div>
         </div>
         <div style={{ marginTop: 8, padding: 8, border: "1px solid #e5e7eb", borderRadius: 8 }}>
@@ -601,6 +618,21 @@ export function App() {
                   {f.name}
                 </option>
               ))}
+            </select>
+            <label>{modeLabel[1]}表显示字段（可多选）</label>
+            <select
+              multiple
+              value={settlementDisplayFields}
+              onChange={(e) => setSettlementDisplayFields(Array.from(e.target.selectedOptions).map((o) => o.value))}
+              style={{ minHeight: 96 }}
+            >
+              {settlementFields
+                .filter((f) => ![settlementCustomerField, settlementAmountField, settlementDateField].includes(f.id))
+                .map((f) => (
+                  <option key={`sshow-${f.id}`} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
             </select>
           </div>
         </div>
@@ -686,25 +718,17 @@ export function App() {
           <table>
             <thead>
               <tr>
-                <th>日期</th>
-                <th>类型</th>
-                <th>摘要</th>
-                <th>备注</th>
-                <th>{modeLabel[0]}金额</th>
-                <th>{modeLabel[1]}金额</th>
-                <th>结余</th>
+                {(ledgerHeaders.length ? ledgerHeaders : Object.keys(ledger[0] ?? {})).map((h) => (
+                  <th key={h}>{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {ledger.map((r, idx) => (
-                <tr key={`${r.date}-${idx}`}>
-                  <td>{r.date}</td>
-                  <td>{r.type}</td>
-                  <td>{r.summary}</td>
-                  <td>{r.remark}</td>
-                  <td>{Number(r.businessAmount ?? 0).toFixed(2)}</td>
-                  <td>{Number(r.settlementAmount ?? 0).toFixed(2)}</td>
-                  <td>{Number(r.balance ?? 0).toFixed(2)}</td>
+                <tr key={`${String(r["日期"] ?? "")}-${idx}`}>
+                  {(ledgerHeaders.length ? ledgerHeaders : Object.keys(r)).map((h) => (
+                    <td key={h}>{String(r[h] ?? "")}</td>
+                  ))}
                 </tr>
               ))}
             </tbody>
