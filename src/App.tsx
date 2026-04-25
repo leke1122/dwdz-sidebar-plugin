@@ -7,7 +7,7 @@ type Row = { customerName: string; salesAmount: number; paymentAmount: number; d
 type PluginContext = { appToken: string; tableId: string; userOpenId: string };
 type Lang = "zh-CN" | "en-US";
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || "https://api.zxaigc.online").replace(/\/$/, "");
 
 const I18N: Record<
   Lang,
@@ -213,6 +213,12 @@ export function App() {
   const [settlementTableId, setSettlementTableId] = useState("");
   const [businessFields, setBusinessFields] = useState<FieldOption[]>([]);
   const [settlementFields, setSettlementFields] = useState<FieldOption[]>([]);
+  const [businessCustomerField, setBusinessCustomerField] = useState("");
+  const [businessAmountField, setBusinessAmountField] = useState("");
+  const [businessDateField, setBusinessDateField] = useState("");
+  const [settlementCustomerField, setSettlementCustomerField] = useState("");
+  const [settlementAmountField, setSettlementAmountField] = useState("");
+  const [settlementDateField, setSettlementDateField] = useState("");
   const [remainingQuota, setRemainingQuota] = useState<number | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [exportToken, setExportToken] = useState("");
@@ -222,38 +228,64 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [activationCode, setActivationCode] = useState("");
   const [contextHint, setContextHint] = useState("");
+  const [manualAppToken, setManualAppToken] = useState("");
+  const [manualUserId, setManualUserId] = useState("");
 
   const needActivation = remainingQuota !== null && remainingQuota <= 0;
   const modeLabel = mode === "purchase_payment" ? ["采购", "付款", "供应商"] : ["销售", "收款", "客户"];
   const t = I18N[lang];
 
+  const effectiveCtx = useMemo(() => {
+    if (ctx) return ctx;
+    const appToken = manualAppToken.trim();
+    if (!appToken) return null;
+    return {
+      appToken,
+      tableId: businessTableId.trim() || settlementTableId.trim(),
+      userOpenId: manualUserId.trim() || "record-view-debug-user",
+    };
+  }, [ctx, manualAppToken, manualUserId, businessTableId, settlementTableId]);
+
   const headers = useMemo(
     () =>
-      ctx
+      effectiveCtx
         ? {
-            "x-lark-app-token": ctx.appToken,
-            "x-lark-table-id": ctx.tableId,
-            "x-lark-user-id": ctx.userOpenId,
+            "x-lark-app-token": effectiveCtx.appToken,
+            "x-lark-table-id": effectiveCtx.tableId,
+            "x-lark-user-id": effectiveCtx.userOpenId,
           }
         : {},
-    [ctx]
+    [effectiveCtx]
   );
 
   useEffect(() => {
+    const cachedUserId =
+      typeof window !== "undefined" ? window.localStorage.getItem("dwdz.manualUserId") ?? "" : "";
     readContext().then((c) => {
       if (c) {
         setCtx(c);
         setBusinessTableId(c.tableId);
         setSettlementTableId(c.tableId);
         setContextHint(t.envReady);
+        setManualAppToken(c.appToken);
+        setManualUserId(c.userOpenId);
       } else {
         setMessage(t.envNotReady);
+        const urlCtx = fromUrl();
+        setManualAppToken(urlCtx.appToken ?? "");
+        setManualUserId(cachedUserId || `debug-${Date.now().toString(36)}`);
       }
     });
   }, [t.envNotReady, t.envReady]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!manualUserId.trim()) return;
+    window.localStorage.setItem("dwdz.manualUserId", manualUserId.trim());
+  }, [manualUserId]);
+
   async function loadFields() {
-    if (!ctx) return;
+    if (!effectiveCtx) return;
     setLoading(true);
     setMessage("");
     try {
@@ -265,6 +297,12 @@ export function App() {
       if (!s.ok || !sj.success) throw new Error(sj.message || "读取结算表字段失败");
       setBusinessFields(bj.fields ?? []);
       setSettlementFields(sj.fields ?? []);
+      setBusinessCustomerField("");
+      setBusinessAmountField("");
+      setBusinessDateField("");
+      setSettlementCustomerField("");
+      setSettlementAmountField("");
+      setSettlementDateField("");
       setRemainingQuota(bj.quota?.remainingQuota ?? sj.quota?.remainingQuota ?? null);
       setMessage("字段读取成功。");
     } catch (e) {
@@ -275,7 +313,7 @@ export function App() {
   }
 
   async function generate() {
-    if (!ctx) return;
+    if (!effectiveCtx) return;
     setLoading(true);
     setMessage("");
     try {
@@ -284,8 +322,18 @@ export function App() {
         headers: { "content-type": "application/json", ...headers },
         body: JSON.stringify({
           mode,
-          businessTable: { tableId: businessTableId },
-          settlementTable: { tableId: settlementTableId },
+          businessTable: {
+            tableId: businessTableId,
+            customerField: businessCustomerField || undefined,
+            amountField: businessAmountField || undefined,
+            dateField: businessDateField || undefined,
+          },
+          settlementTable: {
+            tableId: settlementTableId,
+            customerField: settlementCustomerField || undefined,
+            amountField: settlementAmountField || undefined,
+            dateField: settlementDateField || undefined,
+          },
           dateRange: { start: startDate, end: endDate },
         }),
       });
@@ -306,7 +354,7 @@ export function App() {
   }
 
   async function activate() {
-    if (!ctx || !activationCode.trim()) return;
+    if (!effectiveCtx || !activationCode.trim()) return;
     setLoading(true);
     setMessage("");
     try {
@@ -340,6 +388,22 @@ export function App() {
         </select>
       </div>
       {contextHint ? <p className="muted">{contextHint}</p> : null}
+      {!ctx ? (
+        <div className="grid" style={{ marginTop: 8 }}>
+          <label>Base appToken（上下文失败时手动填写）</label>
+          <input
+            value={manualAppToken}
+            onChange={(e) => setManualAppToken(e.target.value)}
+            placeholder="例如：TBU4buNX3acSVzs8M5FcN168nAc"
+          />
+          <label>用户标识（可默认）</label>
+          <input
+            value={manualUserId}
+            onChange={(e) => setManualUserId(e.target.value)}
+            placeholder="默认会自动生成一个调试用户ID"
+          />
+        </div>
+      ) : null}
 
       <div className="grid">
         <label>{t.mode}</label>
@@ -357,13 +421,74 @@ export function App() {
           <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
           <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
         </div>
-        <button className="primary" onClick={loadFields} disabled={loading || !ctx}>
+        <button className="primary" onClick={loadFields} disabled={loading || !effectiveCtx}>
           {t.readFields}
         </button>
-        <button className="success" onClick={generate} disabled={loading || !ctx || needActivation}>
+        <button className="success" onClick={generate} disabled={loading || !effectiveCtx || needActivation}>
           {t.generate}
         </button>
       </div>
+
+      <details style={{ marginTop: 10 }}>
+        <summary>字段映射（建议先读取字段）</summary>
+        <div className="grid" style={{ marginTop: 8 }}>
+          <label>{modeLabel[0]}表客户字段</label>
+          <select value={businessCustomerField} onChange={(e) => setBusinessCustomerField(e.target.value)}>
+            <option value="">自动识别</option>
+            {businessFields.map((f) => (
+              <option key={`bc-${f.id}`} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+          <label>{modeLabel[0]}表金额字段</label>
+          <select value={businessAmountField} onChange={(e) => setBusinessAmountField(e.target.value)}>
+            <option value="">自动识别</option>
+            {businessFields.map((f) => (
+              <option key={`ba-${f.id}`} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+          <label>{modeLabel[0]}表日期字段</label>
+          <select value={businessDateField} onChange={(e) => setBusinessDateField(e.target.value)}>
+            <option value="">自动识别</option>
+            {businessFields.map((f) => (
+              <option key={`bd-${f.id}`} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+
+          <label>{modeLabel[1]}表客户字段</label>
+          <select value={settlementCustomerField} onChange={(e) => setSettlementCustomerField(e.target.value)}>
+            <option value="">自动识别</option>
+            {settlementFields.map((f) => (
+              <option key={`sc-${f.id}`} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+          <label>{modeLabel[1]}表金额字段</label>
+          <select value={settlementAmountField} onChange={(e) => setSettlementAmountField(e.target.value)}>
+            <option value="">自动识别</option>
+            {settlementFields.map((f) => (
+              <option key={`sa-${f.id}`} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+          <label>{modeLabel[1]}表日期字段</label>
+          <select value={settlementDateField} onChange={(e) => setSettlementDateField(e.target.value)}>
+            <option value="">自动识别</option>
+            {settlementFields.map((f) => (
+              <option key={`sd-${f.id}`} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </details>
 
       <p className="muted">{t.quota}：{remainingQuota ?? "-"}</p>
       {needActivation ? (
