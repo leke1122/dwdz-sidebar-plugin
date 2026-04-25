@@ -7,6 +7,15 @@ type Row = { customerName: string; salesAmount: number; paymentAmount: number; d
 type PluginContext = { appToken: string; tableId: string; userOpenId: string };
 type Lang = "zh-CN" | "en-US";
 type LoadStats = { business: number; settlement: number; total: number };
+type LedgerRow = {
+  date: string;
+  type: string;
+  summary: string;
+  remark: string;
+  businessAmount: number;
+  settlementAmount: number;
+  balance: number;
+};
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || "https://api.zxaigc.online").replace(/\/$/, "");
 const TEST_DEFAULTS = {
@@ -225,6 +234,9 @@ export function App() {
   const [settlementCustomerField, setSettlementCustomerField] = useState("");
   const [settlementAmountField, setSettlementAmountField] = useState("");
   const [settlementDateField, setSettlementDateField] = useState("");
+  const [viewType, setViewType] = useState<"summary" | "ledger">("summary");
+  const [ledger, setLedger] = useState<LedgerRow[]>([]);
+  const [ledgerExportToken, setLedgerExportToken] = useState("");
   const [remainingQuota, setRemainingQuota] = useState<number | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [exportToken, setExportToken] = useState("");
@@ -352,6 +364,42 @@ export function App() {
     setLoading(true);
     setMessage("");
     try {
+      if (viewType === "ledger") {
+        if (!customerName) throw new Error("明细对账单需要先选择客户名称");
+        const resp = await fetch(api("/api/generate-ledger"), {
+          method: "POST",
+          headers: { "content-type": "application/json", ...headers },
+          body: JSON.stringify({
+            mode,
+            businessTable: {
+              tableId: businessTableId,
+              customerField: businessCustomerField || undefined,
+              amountField: businessAmountField || undefined,
+              dateField: businessDateField || undefined,
+            },
+            settlementTable: {
+              tableId: settlementTableId,
+              customerField: settlementCustomerField || undefined,
+              amountField: settlementAmountField || undefined,
+              dateField: settlementDateField || undefined,
+            },
+            customerName: customerName.trim() || undefined,
+            dateRange: { start: startDate, end: endDate },
+          }),
+        });
+        const j = await resp.json();
+        if (!resp.ok || !j.success) {
+          if (resp.status === 402) setRemainingQuota(0);
+          throw new Error(j.message || "生成失败");
+        }
+        setLedger(Array.isArray(j.ledger) ? j.ledger : []);
+        setLedgerExportToken(j.exportToken ?? "");
+        setRows([]);
+        setExportToken("");
+        setRemainingQuota(j.quota?.remainingQuota ?? remainingQuota);
+        setMessage(`已生成 ${j.ledger?.length ?? 0} 条明细。`);
+        return;
+      }
       const resp = await fetch(api("/api/generate-reconciliation"), {
         method: "POST",
         headers: { "content-type": "application/json", ...headers },
@@ -379,6 +427,8 @@ export function App() {
         throw new Error(j.message || "生成失败");
       }
       setRows(j.rows ?? []);
+      setLedger([]);
+      setLedgerExportToken("");
       const generatedOptions = Array.isArray(j.customerOptions) ? j.customerOptions : [];
       setCustomerOptions((prev) => (generatedOptions.length ? generatedOptions : prev));
       setExportToken(j.exportToken ?? "");
@@ -455,6 +505,11 @@ export function App() {
         <select value={mode} onChange={(e) => setMode(e.target.value as ReconciliationMode)}>
           <option value="sales_receipt">{t.modeSales}</option>
           <option value="purchase_payment">{t.modePurchase}</option>
+        </select>
+        <label>对账单类型</label>
+        <select value={viewType} onChange={(e) => setViewType(e.target.value as "summary" | "ledger")}>
+          <option value="summary">汇总（按客户求和）</option>
+          <option value="ledger">明细（流水+结余）</option>
         </select>
 
         <label>{modeLabel[0]}表 table_id</label>
@@ -571,8 +626,32 @@ export function App() {
       {debugInfo ? <p className="muted">调试：{debugInfo}</p> : null}
 
       <div className="row" style={{ marginTop: 8 }}>
-        <a href={exportToken ? api(`/api/export-file?token=${encodeURIComponent(exportToken)}&format=xlsx`) : "#"}>{t.exportExcel}</a>
-        <a href={exportToken ? api(`/api/export-file?token=${encodeURIComponent(exportToken)}&format=csv`) : "#"}>{t.exportCsv}</a>
+        <a
+          href={
+            viewType === "ledger"
+              ? ledgerExportToken
+                ? api(`/api/export-ledger-file?token=${encodeURIComponent(ledgerExportToken)}&format=xlsx`)
+                : "#"
+              : exportToken
+                ? api(`/api/export-file?token=${encodeURIComponent(exportToken)}&format=xlsx`)
+                : "#"
+          }
+        >
+          {t.exportExcel}
+        </a>
+        <a
+          href={
+            viewType === "ledger"
+              ? ledgerExportToken
+                ? api(`/api/export-ledger-file?token=${encodeURIComponent(ledgerExportToken)}&format=csv`)
+                : "#"
+              : exportToken
+                ? api(`/api/export-file?token=${encodeURIComponent(exportToken)}&format=csv`)
+                : "#"
+          }
+        >
+          {t.exportCsv}
+        </a>
       </div>
 
       {message ? <p>{message}</p> : null}
@@ -595,6 +674,37 @@ export function App() {
                   <td>{r.salesAmount.toFixed(2)}</td>
                   <td>{r.paymentAmount.toFixed(2)}</td>
                   <td>{r.diffAmount.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
+      {ledger.length > 0 ? (
+        <div className="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>日期</th>
+                <th>类型</th>
+                <th>摘要</th>
+                <th>备注</th>
+                <th>{modeLabel[0]}金额</th>
+                <th>{modeLabel[1]}金额</th>
+                <th>结余</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ledger.map((r, idx) => (
+                <tr key={`${r.date}-${idx}`}>
+                  <td>{r.date}</td>
+                  <td>{r.type}</td>
+                  <td>{r.summary}</td>
+                  <td>{r.remark}</td>
+                  <td>{Number(r.businessAmount ?? 0).toFixed(2)}</td>
+                  <td>{Number(r.settlementAmount ?? 0).toFixed(2)}</td>
+                  <td>{Number(r.balance ?? 0).toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
