@@ -315,6 +315,19 @@ export function App() {
       setSettlementAmountField("");
       setSettlementDateField("");
       setRemainingQuota(bj.quota?.remainingQuota ?? sj.quota?.remainingQuota ?? null);
+      const optionsResp = await fetch(api("/api/customer-options"), {
+        method: "POST",
+        headers: { "content-type": "application/json", ...headers },
+        body: JSON.stringify({
+          mode,
+          businessTable: { tableId: businessTableId },
+          settlementTable: { tableId: settlementTableId },
+        }),
+      });
+      const optionsJson = await optionsResp.json();
+      if (optionsResp.ok && optionsJson.success) {
+        setCustomerOptions(Array.isArray(optionsJson.options) ? optionsJson.options : []);
+      }
       setMessage("字段读取成功。");
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "读取失败");
@@ -355,7 +368,8 @@ export function App() {
         throw new Error(j.message || "生成失败");
       }
       setRows(j.rows ?? []);
-      setCustomerOptions(Array.isArray(j.customerOptions) ? j.customerOptions : []);
+      const generatedOptions = Array.isArray(j.customerOptions) ? j.customerOptions : [];
+      setCustomerOptions((prev) => (generatedOptions.length ? generatedOptions : prev));
       setExportToken(j.exportToken ?? "");
       setRemainingQuota(j.quota?.remainingQuota ?? remainingQuota);
       const businessCount = Number(j.loadStrategy?.businessRecordCount ?? 0);
