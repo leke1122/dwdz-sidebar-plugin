@@ -331,8 +331,10 @@ export function App() {
         setCustomerOptions(Array.isArray(optionsJson.options) ? optionsJson.options : []);
         const debug = optionsJson.debug || {};
         const optionCount = Array.isArray(optionsJson.options) ? optionsJson.options.length : 0;
+        const bs = Array.isArray(debug.businessSamples) ? debug.businessSamples.join(" | ") : "-";
+        const ss = Array.isArray(debug.settlementSamples) ? debug.settlementSamples.join(" | ") : "-";
         setDebugInfo(
-          `客户选项:${optionCount}；销售客户字段:${debug.businessFieldId ?? "-"}(${debug.businessOptionsCount ?? 0})；收款客户字段:${debug.settlementFieldId ?? "-"}(${debug.settlementOptionsCount ?? 0})`
+          `客户选项:${optionCount}；销售客户字段:${debug.businessFieldId ?? "-"}(${debug.businessOptionsCount ?? 0})；收款客户字段:${debug.settlementFieldId ?? "-"}(${debug.settlementOptionsCount ?? 0})；销售样本:${bs}；收款样本:${ss}`
         );
       } else {
         setDebugInfo(`客户选项接口失败: ${optionsJson.message ?? "unknown"}`);
