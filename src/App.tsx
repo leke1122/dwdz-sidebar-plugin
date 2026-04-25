@@ -232,6 +232,8 @@ export function App() {
   const [ledgerHeaders, setLedgerHeaders] = useState<string[]>([]);
   const [businessDisplayFields, setBusinessDisplayFields] = useState<string[]>([]);
   const [settlementDisplayFields, setSettlementDisplayFields] = useState<string[]>([]);
+  const [loadingHint, setLoadingHint] = useState("");
+  const [lastIdempotencyKey, setLastIdempotencyKey] = useState("");
   const [remainingQuota, setRemainingQuota] = useState<number | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [exportToken, setExportToken] = useState("");
@@ -306,6 +308,7 @@ export function App() {
     setLoading(true);
     setMessage("");
     setDebugInfo("");
+    setLoadingHint("读取中…");
     try {
       const b = await fetch(api(`/api/get-table-fields?tableId=${encodeURIComponent(businessTableId)}`), { headers });
       const bj = await b.json();
@@ -353,6 +356,7 @@ export function App() {
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "读取失败");
     } finally {
+      setLoadingHint("");
       setLoading(false);
     }
   }
@@ -361,12 +365,18 @@ export function App() {
     if (!effectiveCtx) return;
     setLoading(true);
     setMessage("");
+    setLoadingHint("生成中…");
     try {
+      const idempotencyKey =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      setLastIdempotencyKey(idempotencyKey);
       if (viewType === "ledger") {
         if (!customerName) throw new Error("明细对账单需要先选择客户名称");
         const resp = await fetch(api("/api/generate-ledger"), {
           method: "POST",
-          headers: { "content-type": "application/json", ...headers },
+          headers: { "content-type": "application/json", "x-idempotency-key": idempotencyKey, ...headers },
           body: JSON.stringify({
             mode,
             businessTable: {
@@ -403,7 +413,7 @@ export function App() {
       }
       const resp = await fetch(api("/api/generate-reconciliation"), {
         method: "POST",
-        headers: { "content-type": "application/json", ...headers },
+        headers: { "content-type": "application/json", "x-idempotency-key": idempotencyKey, ...headers },
         body: JSON.stringify({
           mode,
           businessTable: {
@@ -446,6 +456,7 @@ export function App() {
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "生成失败");
     } finally {
+      setLoadingHint("");
       setLoading(false);
     }
   }
@@ -687,6 +698,8 @@ export function App() {
       </div>
 
       {message ? <p>{message}</p> : null}
+      {loadingHint ? <p className="muted">{loadingHint}</p> : null}
+      {lastIdempotencyKey ? <p className="muted">请求ID：{lastIdempotencyKey.slice(0, 8)}…</p> : null}
 
       {rows.length > 0 ? (
         <div className="tableWrap">
