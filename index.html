@@ -6,7 +6,20 @@
     <title>智序对账插件</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root" style="padding:12px;color:#374151;font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+      正在加载智序对账插件...
+    </div>
+    <script nomodule>
+      (function () {
+        var el = document.getElementById("root");
+        if (!el) return;
+        el.innerHTML =
+          '<div style="padding:12px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;">' +
+          "<strong>当前飞书内核较旧，暂不支持该插件脚本。</strong><br/>" +
+          "请升级飞书桌面端后重试，或联系管理员切换到较新客户端版本。" +
+          "</div>";
+      })();
+    </script>
     <script type="module" src="./src/main.tsx"></script>
   </body>
 </html>

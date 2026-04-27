@@ -7,7 +7,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 4173"
+    "build:block": "node ./scripts/build-block.mjs",
+    "verify:block-dist": "node ./scripts/verify-block-dist.mjs",
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "self-check": "node ./scripts/self-check.mjs"
   },
   "dependencies": {
     "react": "^19.2.0",
@@ -17,8 +20,8 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.1.0",
+    "esbuild": "^0.28.0",
     "typescript": "^5.9.3",
     "vite": "^7.1.9"
   }
 }
-
