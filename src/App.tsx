@@ -736,16 +736,36 @@ export function App() {
   }
 
   async function activate() {
-    if (!effectiveCtx || !activationCode.trim()) return;
+    if (!activationCode.trim()) {
+      setMessage(tr("请输入激活码。", "Please enter an activation code."));
+      return;
+    }
+    if (!effectiveCtx?.userOpenId) {
+      setMessage(
+        tr(
+          "缺少用户标识：请从多维表记录视图打开插件，或在「设置」填写备用 Base appToken 后重试。",
+          "Missing user id: open the plugin from Bitable record view, or set backup appToken in Settings."
+        )
+      );
+      return;
+    }
     setLoading(true);
     setMessage("");
     try {
       const resp = await fetch(api("/api/validate-activation-code"), {
         method: "POST",
         headers: { "content-type": "application/json", ...headers },
-        body: JSON.stringify({ code: activationCode.trim() }),
+        body: JSON.stringify({
+          code: activationCode.trim(),
+          larkUserId: effectiveCtx.userOpenId,
+        }),
       });
-      const j = await resp.json();
+      let j: { success?: boolean; message?: string; quota?: { remainingQuota?: number } } = {};
+      try {
+        j = (await resp.json()) as typeof j;
+      } catch {
+        throw new Error(tr(`激活接口返回异常（${resp.status}）`, `Invalid activation response (${resp.status})`));
+      }
       if (!resp.ok || !j.success) throw new Error(j.message || tr("激活失败", "Activation failed"));
       setRemainingQuota(j.quota?.remainingQuota ?? remainingQuota);
       setActivationCode("");
@@ -1029,9 +1049,19 @@ export function App() {
           {needActivation ? <p className="danger">{tr("试用次数已用完，请在设置页输入激活码继续使用。", "Trial quota exhausted, please activate in settings.")}</p> : null}
           <label>{tr("激活码", "Activation code")}</label>
           <input value={activationCode} onChange={(e) => setActivationCode(e.target.value)} placeholder={t.activationPlaceholder} />
-          <button onClick={activate} disabled={loading || !activationCode.trim()}>
+          <button
+            type="button"
+            onClick={() => void activate()}
+            disabled={loading || !activationCode.trim() || !effectiveCtx?.userOpenId}
+          >
             {t.activate}
           </button>
+          {loading ? <p className="muted">{tr("处理中…", "Processing…")}</p> : null}
+          {message ? (
+            <p role="status" style={{ marginTop: 8, fontWeight: 600 }}>
+              {message}
+            </p>
+          ) : null}
           <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 10 }}>
             <div style={{ fontWeight: 600, marginBottom: 6 }}>{tr("如何获得激活码", "How to get activation code")}</div>
             <div className="muted">{tr("1. 试用默认 5 次，次数用完后可购买激活码。", "1. Trial includes 5 runs by default, then activation is required.")}</div>
