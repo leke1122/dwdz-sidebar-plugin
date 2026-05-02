@@ -1,6 +1,6 @@
 {
   "name": "dwdz-sidebar-plugin",
-  "version": "0.0.94",
+  "version": "0.0.92",
   "private": true,
   "type": "module",
   "output": "dist",
