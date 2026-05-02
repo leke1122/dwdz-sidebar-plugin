@@ -45,6 +45,10 @@ const I18N: Record<
     settlementTableAuto: string;
     tablesLoading: string;
     reloadFields: string;
+    reloadTablesList: string;
+    tableUntitled: string;
+    tablesNoneHint: string;
+    tablesApiNotJson: string;
     partyNameRequired: string;
     partySelectPlaceholder: string;
     fieldMappingSummary: string;
@@ -72,6 +76,11 @@ const I18N: Record<
     settlementTableAuto: "收款/付款表（选择子表）",
     tablesLoading: "正在加载多维表子表列表…",
     reloadFields: "重新读取字段",
+    reloadTablesList: "重新加载子表列表",
+    tableUntitled: "未命名数据表",
+    tablesNoneHint: "未获取到子表：请检查后端 /api/get-app-tables 是否已部署，或点击重新加载。",
+    tablesApiNotJson:
+      "子表列表接口返回了网页而非 JSON（常见为 404 未部署）。请部署最新 dwdz-api 后点「重新加载子表列表」。",
     partyNameRequired: "客户/供应商名称（必选）",
     partySelectPlaceholder: "请选择客户/供应商",
     fieldMappingSummary: "字段映射（销售/采购 ↔ 收款/付款；打开后已自动读取字段，可改子表后点「重新读取字段」）",
@@ -99,6 +108,11 @@ const I18N: Record<
     settlementTableAuto: "Receipt/Payment table",
     tablesLoading: "Loading Bitable tables…",
     reloadFields: "Reload fields",
+    reloadTablesList: "Reload table list",
+    tableUntitled: "Untitled table",
+    tablesNoneHint: "No tables loaded: deploy /api/get-app-tables or tap reload.",
+    tablesApiNotJson:
+      "Table list API returned HTML (often HTTP 404). Deploy latest dwdz-api, then tap Reload table list.",
     partyNameRequired: "Customer/Vendor name (required)",
     partySelectPlaceholder: "Select customer/vendor",
     fieldMappingSummary:
@@ -114,6 +128,11 @@ function api(path: string): string {
 
 function pick(input: unknown): string {
   return typeof input === "string" ? input.trim() : "";
+}
+
+function tableOptionLabel(t: TableOption, untitled: string): string {
+  const name = t.name?.trim() ? t.name.trim() : untitled;
+  return `${name} (${t.id})`;
 }
 
 function fromUrl(): Partial<PluginContext> {
@@ -372,6 +391,7 @@ export function App() {
   const [settlementTableId, setSettlementTableId] = useState("");
   const [tableOptions, setTableOptions] = useState<TableOption[]>([]);
   const [tableOptionsLoading, setTableOptionsLoading] = useState(false);
+  const [tableListError, setTableListError] = useState("");
   const [businessFields, setBusinessFields] = useState<FieldOption[]>([]);
   const [settlementFields, setSettlementFields] = useState<FieldOption[]>([]);
   const [businessCustomerField, setBusinessCustomerField] = useState("");
@@ -507,37 +527,58 @@ export function App() {
     window.localStorage.setItem("dwdz.manualUserId", manualUserId.trim());
   }, [manualUserId]);
 
-  useEffect(() => {
-    async function loadTables() {
-      if (!effectiveCtx?.appToken || !effectiveCtx?.userOpenId) return;
-      setTableOptionsLoading(true);
-      try {
-        const listHeaders = {
-          "x-lark-app-token": effectiveCtx.appToken,
-          "x-lark-user-id": effectiveCtx.userOpenId,
-          "x-lark-table-id": (ctx?.tableId && ctx.tableId.trim()) || "",
-        };
-        const resp = await fetch(api("/api/get-app-tables"), { headers: listHeaders });
-        const json = await resp.json();
-        if (!resp.ok || !json.success) throw new Error(json.message || tr("读取数据表失败", "Failed to load tables"));
-        const options = Array.isArray(json.tables) ? (json.tables as TableOption[]) : [];
-        setTableOptions(options);
-        if (options.length > 0) {
-          setBusinessTableId((prev) => prev || options[0].id);
-          setSettlementTableId((prev) => {
-            if (prev) return prev;
-            return options.length >= 2 ? options[1].id : options[0].id;
-          });
-        }
-      } catch (e) {
-        setTableOptions([]);
-        setMessage(e instanceof Error ? e.message : tr("读取数据表失败", "Failed to load tables"));
-      } finally {
-        setTableOptionsLoading(false);
+  const loadTableList = useCallback(async () => {
+    if (!effectiveCtx?.appToken || !effectiveCtx?.userOpenId) return;
+    const loc = I18N[lang];
+    setTableListError("");
+    setTableOptionsLoading(true);
+    try {
+      const listHeaders = {
+        "x-lark-app-token": effectiveCtx.appToken,
+        "x-lark-user-id": effectiveCtx.userOpenId,
+        "x-lark-table-id": (ctx?.tableId && ctx.tableId.trim()) || "",
+      };
+      const resp = await fetch(api("/api/get-app-tables"), { headers: listHeaders });
+      const bodyText = await resp.text();
+      const trimmed = bodyText.trim();
+      if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+        throw new Error(loc.tablesApiNotJson);
       }
+      let json: { success?: boolean; message?: string; tables?: unknown };
+      try {
+        json = JSON.parse(bodyText) as typeof json;
+      } catch {
+        throw new Error(loc.tablesApiNotJson);
+      }
+      if (!resp.ok || !json.success) {
+        throw new Error(json.message || (lang === "zh-CN" ? "读取数据表失败" : "Failed to load tables"));
+      }
+      const raw = Array.isArray(json.tables) ? (json.tables as TableOption[]) : [];
+      const options = raw
+        .map((row) => {
+          const id = pick((row as { id?: string }).id) || pick((row as { table_id?: string }).table_id);
+          return { id, name: pick(row.name) };
+        })
+        .filter((row) => row.id);
+      setTableOptions(options);
+    } catch (e) {
+      setTableOptions([]);
+      setTableListError(e instanceof Error ? e.message : loc.tablesNoneHint);
+    } finally {
+      setTableOptionsLoading(false);
     }
-    void loadTables();
-  }, [effectiveCtx?.appToken, effectiveCtx?.userOpenId, ctx?.tableId]);
+  }, [effectiveCtx?.appToken, effectiveCtx?.userOpenId, ctx?.tableId, lang]);
+
+  useEffect(() => {
+    void loadTableList();
+  }, [loadTableList]);
+
+  useEffect(() => {
+    if (tableOptions.length === 0) return;
+    const ids = new Set(tableOptions.map((x) => x.id));
+    setBusinessTableId((prev) => (ids.has(prev) ? prev : tableOptions[0].id));
+    setSettlementTableId((prev) => (ids.has(prev) ? prev : tableOptions[0].id));
+  }, [tableOptions]);
 
   useEffect(() => {
     if (tableOptions.length < 2) return;
@@ -841,34 +882,87 @@ export function App() {
       {viewTab === "main" ? (
       <div className="grid">
         <label>{t.businessTableAuto}</label>
-        {tableOptionsLoading ? <p className="muted" style={{ marginTop: 2 }}>{t.tablesLoading}</p> : null}
-        {tableOptions.length > 0 ? (
-          <select value={businessTableId} onChange={(e) => setBusinessTableId(e.target.value)} disabled={tableOptionsLoading}>
-            {tableOptions.map((t) => (
-              <option key={`bt-${t.id}`} value={t.id}>
-                {t.name}
+        {effectiveCtx?.appToken && effectiveCtx?.userOpenId ? (
+          <select
+            value={
+              tableOptions.length === 0
+                ? businessTableId
+                : tableOptions.some((x) => x.id === businessTableId)
+                  ? businessTableId
+                  : tableOptions[0].id
+            }
+            onChange={(e) => setBusinessTableId(e.target.value)}
+            disabled={tableOptionsLoading}
+          >
+            {tableOptionsLoading && tableOptions.length === 0 ? (
+              <option value={businessTableId || ""}>{t.tablesLoading}</option>
+            ) : null}
+            {tableOptions.length === 0 && !tableOptionsLoading ? (
+              <option value={businessTableId}>
+                {businessTableId
+                  ? tr(`当前表（仅 ID）：${businessTableId}`, `Current table id: ${businessTableId}`)
+                  : tr("暂无子表，请点下方重新加载", "No tables — use reload below")}
+              </option>
+            ) : null}
+            {tableOptions.map((row) => (
+              <option key={`bt-${row.id}`} value={row.id}>
+                {tableOptionLabel(row, t.tableUntitled)}
               </option>
             ))}
           </select>
         ) : (
-          <input value={businessTableId} onChange={(e) => setBusinessTableId(e.target.value)} placeholder={tr("自动读取失败时可手填 table_id", "Manual table_id if auto-load fails")} />
+          <input
+            value={businessTableId}
+            onChange={(e) => setBusinessTableId(e.target.value)}
+            placeholder={tr("自动读取失败时可手填 table_id", "Manual table_id if auto-load fails")}
+          />
         )}
         <label>{t.settlementTableAuto}</label>
-        {tableOptions.length > 0 ? (
+        {effectiveCtx?.appToken && effectiveCtx?.userOpenId ? (
           <select
-            value={settlementTableId}
+            value={
+              tableOptions.length === 0
+                ? settlementTableId
+                : tableOptions.some((x) => x.id === settlementTableId)
+                  ? settlementTableId
+                  : tableOptions[0].id
+            }
             onChange={(e) => setSettlementTableId(e.target.value)}
             disabled={tableOptionsLoading}
           >
-            {tableOptions.map((t) => (
-              <option key={`st-${t.id}`} value={t.id}>
-                {t.name}
+            {tableOptionsLoading && tableOptions.length === 0 ? (
+              <option value={settlementTableId || ""}>{t.tablesLoading}</option>
+            ) : null}
+            {tableOptions.length === 0 && !tableOptionsLoading ? (
+              <option value={settlementTableId}>
+                {settlementTableId
+                  ? tr(`当前表（仅 ID）：${settlementTableId}`, `Current table id: ${settlementTableId}`)
+                  : tr("暂无子表，请点下方重新加载", "No tables — use reload below")}
+              </option>
+            ) : null}
+            {tableOptions.map((row) => (
+              <option key={`st-${row.id}`} value={row.id}>
+                {tableOptionLabel(row, t.tableUntitled)}
               </option>
             ))}
           </select>
         ) : (
-          <input value={settlementTableId} onChange={(e) => setSettlementTableId(e.target.value)} placeholder={tr("自动读取失败时可手填 table_id", "Manual table_id if auto-load fails")} />
+          <input
+            value={settlementTableId}
+            onChange={(e) => setSettlementTableId(e.target.value)}
+            placeholder={tr("自动读取失败时可手填 table_id", "Manual table_id if auto-load fails")}
+          />
         )}
+        {effectiveCtx?.appToken && effectiveCtx?.userOpenId ? (
+          <>
+            {tableOptionsLoading ? <p className="muted">{t.tablesLoading}</p> : null}
+            {tableListError ? <p className="muted">{tableListError}</p> : null}
+            {!tableOptionsLoading && tableOptions.length === 0 && !tableListError ? <p className="muted">{t.tablesNoneHint}</p> : null}
+            <button type="button" onClick={() => void loadTableList()} disabled={tableOptionsLoading}>
+              {t.reloadTablesList}
+            </button>
+          </>
+        ) : null}
         <label>
           {t.partyNameRequired}
           {customerOptions.length > 0 ? (
