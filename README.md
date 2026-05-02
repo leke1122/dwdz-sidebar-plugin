@@ -16,13 +16,25 @@ copy .env.example .env
 npm run dev
 ```
 
+## 版本号
+
+**只改 `src/version.ts` 里的 `PLUGIN_BUILD_VERSION`**（并与根目录 `package.json` 的 `version` 保持一致）。网页标题、加载页、小组件 UI、`opdev -v` 均依赖这一处。
+
+- 查看当前发布号：`npm run release:version`
+
 ## 打包提报
+
+```bash
+# 推荐：构建 + 校验 + 上传（-v 自动等于 PLUGIN_BUILD_VERSION，避免版本漂移）
+npm run release:upload:block
+```
+
+手动分步（不推荐，易与源码版本号不一致）：
 
 ```bash
 npm run build:block
 npm run verify:block-dist
-# 仅允许上传 dist 目录
-opdev upload ./dist -t block -p pc -v <version> -d "<description>"
+opdev upload ./dist -t block -p pc -v <必须与 src/version.ts 一致> -d "<description>"
 ```
 
 注意：`index.html` 必须位于 `dist` 根目录（与 `app.js`/`app.css` 同级），否则飞书记录视图容器无法加载。

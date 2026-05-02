@@ -10,6 +10,8 @@ function pickVersionFromSource(source) {
 }
 
 function pickJsPathFromHtml(html) {
+  const mBlock = html.match(/<script[^>]+src="([^"]*app\.js)"/i);
+  if (mBlock?.[1]) return mBlock[1];
   const mApp = html.match(/<script[^>]+src="([^"]+app-[^"]+\.js)"/i);
   if (mApp?.[1]) return mApp[1];
   const mVite = html.match(/<script[^>]+src="([^"]+assets\/index-[^"]+\.js)"/i);
@@ -54,7 +56,7 @@ async function main() {
   const jsPath = pickJsPathFromHtml(webHtml);
   const jsUrl = toAbsolute(WEB_URL, jsPath);
   if (!jsUrl) {
-    throw new Error("线上首页未找到 app-*.js 资源路径。");
+    throw new Error("线上首页未找到 app.js / app-*.js / assets/index-*.js 脚本路径。");
   }
 
   const webJsResp = await fetch(jsUrl, { redirect: "follow" });

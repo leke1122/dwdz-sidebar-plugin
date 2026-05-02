@@ -11,13 +11,13 @@
 
 - 前端唯一发布源：`dwdz-sidebar-plugin-temp`
 - 禁止从其他目录发布前端包
+- **插件对外版本号只认一处**：`src/version.ts` 里的 `PLUGIN_BUILD_VERSION`。改版本只改这里；`package.json` 的 `version` 与之保持同步，便于扫一眼仓库。
 
 ## 发布前
 
-1. 在 `src/version.ts` 更新 `PLUGIN_BUILD_VERSION`
+1. 在 `src/version.ts` 更新 `PLUGIN_BUILD_VERSION`（并同步把根目录 `package.json` 的 `version` 改成相同 semver）
 2. 执行：
-   - `npm run build`
-   - `npm run build:block`
+   - 网页与 Vercel：推送 Git 后由 `vercel.json` 的 `buildCommand` 执行 `build:block`（本地可 `npm run build:block` 预检）
 3. 执行自检：
    - `npm run self-check`
 
@@ -31,9 +31,10 @@
 
 ### B. 飞书记录视图链路
 
-1. `npm run build:block`
-2. `npm run verify:block-dist`
-3. `opdev upload ./dist -t block -p pc -v <version> -d "<description>"`
+1. **必须**使用（避免手填 `-v` 与源码不一致）：
+   - `npm run release:upload:block`  
+   该命令会：`build:block` → `verify:block-dist` → `opdev upload … -v <与 PLUGIN_BUILD_VERSION 相同>`
+2. 若需只查看当前版本号：`npm run release:version`
 4. 飞书开放平台切记录视图到新版本并发布应用版本
 5. 飞书客户端删除旧插件实例后重新添加验证
 

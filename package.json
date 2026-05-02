@@ -1,6 +1,6 @@
 {
   "name": "dwdz-sidebar-plugin",
-  "version": "0.1.0",
+  "version": "0.0.92",
   "private": true,
   "type": "module",
   "output": "dist",
@@ -10,7 +10,9 @@
     "build:block": "node ./scripts/build-block.mjs",
     "verify:block-dist": "node ./scripts/verify-block-dist.mjs",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
-    "self-check": "node ./scripts/self-check.mjs"
+    "self-check": "node ./scripts/self-check.mjs",
+    "release:version": "node ./scripts/read-plugin-version.mjs",
+    "release:upload:block": "node ./scripts/release-upload-block.mjs"
   },
   "dependencies": {
     "react": "^19.2.0",

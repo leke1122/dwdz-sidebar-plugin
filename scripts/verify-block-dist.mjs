@@ -32,7 +32,7 @@ async function main() {
   }
 
   console.log("Block package verification passed.");
-  console.log("Use: opdev upload ./dist -t block -p pc -v <version> -d \"...\"");
+  console.log("Upload (opdev -v = PLUGIN_BUILD_VERSION): npm run release:upload:block");
 }
 
 main().catch((error) => {

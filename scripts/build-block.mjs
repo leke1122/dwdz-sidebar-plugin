@@ -1,11 +1,10 @@
 import { build } from "esbuild";
-import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { readPluginVersion } from "./plugin-version.mjs";
 
 const outDir = resolve("dist");
-const versionSource = await readFile(resolve("src/version.ts"), "utf8");
-const versionMatch = versionSource.match(/PLUGIN_BUILD_VERSION\s*=\s*"([^"]+)"/);
-const buildVersion = versionMatch?.[1] ?? "unknown";
+const buildVersion = (await readPluginVersion()) || "unknown";
 
 await mkdir(outDir, { recursive: true });
 const oldFiles = await readdir(outDir).catch(() => []);
