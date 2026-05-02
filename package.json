@@ -1,6 +1,6 @@
 {
   "name": "dwdz-sidebar-plugin",
-  "version": "0.0.93",
+  "version": "0.0.94",
   "private": true,
   "type": "module",
   "output": "dist",
@@ -15,6 +15,7 @@
     "release:upload:block": "node ./scripts/release-upload-block.mjs"
   },
   "dependencies": {
+    "@lark-opdev/block-bitable-api": "^0.4.1-alpha.11",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

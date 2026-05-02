@@ -175,6 +175,25 @@ function fromStorages(): PartialCtx {
   }
 }
 
+/** 飞书记录视图 / Pack 小组件：从官方 Bitable Bridge 读取 baseId（即 appToken）、表与用户。 */
+async function fromBitablePackSdk(): Promise<PartialCtx> {
+  try {
+    const { bitable } = await import("@lark-opdev/block-bitable-api");
+    const selection = await bitable.base.getSelection();
+    const appToken = pick(selection?.baseId);
+    const tableId = pick(selection?.tableId);
+    let userOpenId = "";
+    try {
+      userOpenId = pick(await bitable.bridge.getBaseUserId());
+    } catch {
+      /* host 尚未就绪时 bridge 可能短暂失败 */
+    }
+    return { appToken, tableId, userOpenId };
+  } catch {
+    return {};
+  }
+}
+
 function stableUserFallback(appToken: string): string {
   if (typeof window === "undefined") return "record-view-debug-user";
   const key = "dwdz.fallbackUserOpenId";
@@ -299,11 +318,12 @@ async function readPluginBitableContext(): Promise<PluginContext | null> {
     }
   }
 
-  const appToken = pick(bundle.appToken);
+  const packCtx = await fromBitablePackSdk();
+  const appToken = pick(packCtx.appToken) || pick(bundle.appToken);
   if (!appToken) return null;
 
-  const tableId = pick(bundle.tableId);
-  let userOpenId = pick(bundle.userOpenId);
+  const tableId = pick(packCtx.tableId) || pick(bundle.tableId);
+  let userOpenId = pick(packCtx.userOpenId) || pick(bundle.userOpenId);
   if (!userOpenId && typeof window !== "undefined") {
     try {
       userOpenId = pick(window.localStorage.getItem("dwdz.manualUserId"));
@@ -447,8 +467,8 @@ export function App() {
         setMessage("");
         return;
       }
-      if (i < 8) {
-        setTimeout(() => attempt(i + 1), 350);
+      if (i < 12) {
+        setTimeout(() => attempt(i + 1), 450);
         return;
       }
       setCtx(null);
