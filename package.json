@@ -1,6 +1,6 @@
 {
   "name": "dwdz-sidebar-plugin",
-  "version": "0.0.95",
+  "version": "0.0.97",
   "private": true,
   "type": "module",
   "output": "dist",
@@ -12,7 +12,9 @@
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "self-check": "node ./scripts/self-check.mjs",
     "release:version": "node ./scripts/read-plugin-version.mjs",
-    "release:upload:block": "node ./scripts/release-upload-block.mjs"
+    "release:upload:block": "node ./scripts/release-upload-block.mjs",
+    "release:vercel:prod": "vercel deploy --prod --yes",
+    "release:ship:test": "npm run release:vercel:prod && npm run release:upload:block"
   },
   "dependencies": {
     "@lark-opdev/block-bitable-api": "^0.4.1-alpha.11",

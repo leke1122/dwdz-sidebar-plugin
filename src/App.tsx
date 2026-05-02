@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PLUGIN_BUILD_VERSION } from "./version";
 
 type ViewTab = "main" | "guide" | "settings";
@@ -43,6 +43,8 @@ const I18N: Record<
     envPartial: string;
     businessTableAuto: string;
     settlementTableAuto: string;
+    tablesLoading: string;
+    reloadFields: string;
     partyNameRequired: string;
     partySelectPlaceholder: string;
     fieldMappingSummary: string;
@@ -66,11 +68,13 @@ const I18N: Record<
     envNotReady: "未自动读到 Base appToken：请从多维表记录视图/侧栏打开插件，或在地址中带上 appToken 参数；仍可在「设置」填写备用 appToken。",
     envReady: "已自动读取 Base appToken（与当前多维表一致）。",
     envPartial: "已读取 appToken，飞书用户标识将随容器就绪自动补齐；若功能异常请从记录视图重新打开。",
-    businessTableAuto: "销售/采购表（自动读取）",
-    settlementTableAuto: "收款/付款表（自动读取）",
+    businessTableAuto: "销售/采购表（选择子表）",
+    settlementTableAuto: "收款/付款表（选择子表）",
+    tablesLoading: "正在加载多维表子表列表…",
+    reloadFields: "重新读取字段",
     partyNameRequired: "客户/供应商名称（必选）",
     partySelectPlaceholder: "请选择客户/供应商",
-    fieldMappingSummary: "字段映射（销售/采购 ↔ 收款/付款，建议先读取字段）",
+    fieldMappingSummary: "字段映射（销售/采购 ↔ 收款/付款；打开后已自动读取字段，可改子表后点「重新读取字段」）",
     businessMappingTitle: "销售/采购表映射",
     settlementMappingTitle: "收款/付款表映射",
   },
@@ -91,11 +95,14 @@ const I18N: Record<
       "Could not auto-read Base appToken: open the plugin from Bitable record view/sidebar, or pass appToken in the URL; you can still set a backup appToken in Settings.",
     envReady: "Base appToken loaded (matches current Bitable).",
     envPartial: "appToken loaded; user id will bind when the host is ready. Re-open from record view if something looks wrong.",
-    businessTableAuto: "Sales/Purchase table (auto)",
-    settlementTableAuto: "Receipt/Payment table (auto)",
+    businessTableAuto: "Sales/Purchase table",
+    settlementTableAuto: "Receipt/Payment table",
+    tablesLoading: "Loading Bitable tables…",
+    reloadFields: "Reload fields",
     partyNameRequired: "Customer/Vendor name (required)",
     partySelectPlaceholder: "Select customer/vendor",
-    fieldMappingSummary: "Field mapping (sales/purchase ↔ receipt/payment; load fields first)",
+    fieldMappingSummary:
+      "Field mapping (sales/purchase ↔ receipt/payment). Fields load automatically; use Reload fields after changing tables.",
     businessMappingTitle: "Sales/Purchase table mapping",
     settlementMappingTitle: "Receipt/Payment table mapping",
   },
@@ -398,6 +405,8 @@ export function App() {
   const [debugInfo, setDebugInfo] = useState("");
   const [quotaLogs, setQuotaLogs] = useState<QuotaLogItem[]>([]);
   const [fieldLoadSummary, setFieldLoadSummary] = useState("");
+  /** 并发「读取字段」时丢弃过期结果 */
+  const fieldsLoadGen = useRef(0);
 
   const needActivation = remainingQuota !== null && remainingQuota <= 0;
   const isZh = lang === "zh-CN";
@@ -503,14 +512,22 @@ export function App() {
       if (!effectiveCtx?.appToken || !effectiveCtx?.userOpenId) return;
       setTableOptionsLoading(true);
       try {
-        const resp = await fetch(api("/api/get-app-tables"), { headers });
+        const listHeaders = {
+          "x-lark-app-token": effectiveCtx.appToken,
+          "x-lark-user-id": effectiveCtx.userOpenId,
+          "x-lark-table-id": (ctx?.tableId && ctx.tableId.trim()) || "",
+        };
+        const resp = await fetch(api("/api/get-app-tables"), { headers: listHeaders });
         const json = await resp.json();
         if (!resp.ok || !json.success) throw new Error(json.message || tr("读取数据表失败", "Failed to load tables"));
         const options = Array.isArray(json.tables) ? (json.tables as TableOption[]) : [];
         setTableOptions(options);
         if (options.length > 0) {
           setBusinessTableId((prev) => prev || options[0].id);
-          setSettlementTableId((prev) => prev || options[Math.min(1, options.length - 1)].id);
+          setSettlementTableId((prev) => {
+            if (prev) return prev;
+            return options.length >= 2 ? options[1].id : options[0].id;
+          });
         }
       } catch (e) {
         setTableOptions([]);
@@ -519,8 +536,16 @@ export function App() {
         setTableOptionsLoading(false);
       }
     }
-    loadTables();
-  }, [effectiveCtx?.appToken, effectiveCtx?.userOpenId, headers]);
+    void loadTables();
+  }, [effectiveCtx?.appToken, effectiveCtx?.userOpenId, ctx?.tableId]);
+
+  useEffect(() => {
+    if (tableOptions.length < 2) return;
+    if (businessTableId && settlementTableId && businessTableId === settlementTableId) {
+      const other = tableOptions.find((t) => t.id !== businessTableId);
+      if (other) setSettlementTableId(other.id);
+    }
+  }, [tableOptions, businessTableId, settlementTableId]);
 
   useEffect(() => {
     async function loadQuotaLogs() {
@@ -544,24 +569,32 @@ export function App() {
     return action;
   }
 
-  async function loadFields() {
+  const loadFields = useCallback(async () => {
+    const loc = (zh: string, en: string) => (lang === "zh-CN" ? zh : en);
     if (!effectiveCtx?.appToken) return;
     if (!businessTableId.trim() || !settlementTableId.trim()) {
-      setMessage(tr("请先等待数据表列表加载完成，并选择销售/采购表与收款/付款表。", "Wait for the table list, then select sales/purchase and receipt/payment tables."));
+      setMessage(loc("请先等待数据表列表加载完成，并选择销售/采购表与收款/付款表。", "Wait for the table list, then select sales/purchase and receipt/payment tables."));
       return;
     }
+    const gen = ++fieldsLoadGen.current;
+    const stale = () => fieldsLoadGen.current !== gen;
+
     setLoading(true);
     setMessage("");
     setFieldLoadSummary("");
     setDebugInfo("");
-    setLoadingHint(tr("读取中…", "Loading fields..."));
+    setLoadingHint(loc("读取中…", "Loading fields..."));
     try {
       const b = await fetch(api(`/api/get-table-fields?tableId=${encodeURIComponent(businessTableId)}`), { headers });
+      if (stale()) return;
       const bj = await b.json();
-      if (!b.ok || !bj.success) throw new Error(bj.message || tr("读取销售/采购表字段失败", "Failed to load sales/purchase fields"));
+      if (!b.ok || !bj.success) throw new Error(bj.message || loc("读取销售/采购表字段失败", "Failed to load sales/purchase fields"));
+      if (stale()) return;
       const s = await fetch(api(`/api/get-table-fields?tableId=${encodeURIComponent(settlementTableId)}`), { headers });
+      if (stale()) return;
       const sj = await s.json();
-      if (!s.ok || !sj.success) throw new Error(sj.message || tr("读取收款/付款表字段失败", "Failed to load receipt/payment fields"));
+      if (!s.ok || !sj.success) throw new Error(sj.message || loc("读取收款/付款表字段失败", "Failed to load receipt/payment fields"));
+      if (stale()) return;
       setBusinessFields(bj.fields ?? []);
       setSettlementFields(sj.fields ?? []);
       setCustomerOptions([]);
@@ -585,6 +618,7 @@ export function App() {
           settlementTable: { tableId: settlementTableId },
         }),
       });
+      if (stale()) return;
       const optionsJson = await optionsResp.json();
       const bFields = (bj.fields ?? []) as FieldOption[];
       const sFields = (sj.fields ?? []) as FieldOption[];
@@ -599,29 +633,52 @@ export function App() {
         const bs = Array.isArray(debug.businessSamples) ? debug.businessSamples.join(" | ") : "-";
         const ss = Array.isArray(debug.settlementSamples) ? debug.settlementSamples.join(" | ") : "-";
         setDebugInfo(
-          tr(
+          loc(
             `客户/供应商选项:${custCount}；销售/采购侧字段:${debug.businessFieldId ?? "-"}(${debug.businessOptionsCount ?? 0})；收款/付款侧字段:${debug.settlementFieldId ?? "-"}(${debug.settlementOptionsCount ?? 0})；销售/采购样本:${bs}；收款/付款样本:${ss}`,
             `Customer/vendor options:${custCount}; Sales/purchase side:${debug.businessFieldId ?? "-"}(${debug.businessOptionsCount ?? 0}); Receipt/payment side:${debug.settlementFieldId ?? "-"}(${debug.settlementOptionsCount ?? 0}); Samples:${bs} / ${ss}`
           )
         );
       } else {
         setCustomerOptions([]);
-        setDebugInfo(`${tr("客户/供应商列表接口失败", "Customer/vendor list API failed")}: ${optionsJson.message ?? "unknown"}`);
+        setDebugInfo(`${loc("客户/供应商列表接口失败", "Customer/vendor list API failed")}: ${optionsJson.message ?? "unknown"}`);
       }
-      const summary = tr(
+      if (stale()) return;
+      const summary = loc(
         `已读取：销售/采购表字段 ${bCount} 个；收款/付款表字段 ${sCount} 个；客户/供应商名称 ${custCount} 条（已填入下方下拉）。`,
         `Loaded: ${bCount} sales/purchase field(s); ${sCount} receipt/payment field(s); ${custCount} customer/vendor name(s) in the dropdown.`
       );
       setFieldLoadSummary(summary);
-      setMessage(tr("字段与客户/供应商列表读取完成。", "Fields and customer/vendor list loaded."));
+      setMessage(loc("字段与客户/供应商列表读取完成。", "Fields and customer/vendor list loaded."));
     } catch (e) {
-      setFieldLoadSummary("");
-      setMessage(e instanceof Error ? e.message : tr("读取失败", "Load failed"));
+      if (!stale()) {
+        setFieldLoadSummary("");
+        setMessage(e instanceof Error ? e.message : loc("读取失败", "Load failed"));
+      }
     } finally {
-      setLoadingHint("");
-      setLoading(false);
+      if (!stale()) {
+        setLoadingHint("");
+        setLoading(false);
+      }
     }
-  }
+  }, [effectiveCtx, businessTableId, settlementTableId, headers, mode, lang]);
+
+  useEffect(() => {
+    if (viewTab !== "main") return;
+    if (!effectiveCtx?.appToken) return;
+    if (!businessTableId.trim() || !settlementTableId.trim()) return;
+    if (tableOptionsLoading) return;
+    const timer = window.setTimeout(() => {
+      void loadFields();
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [
+    viewTab,
+    effectiveCtx?.appToken,
+    businessTableId,
+    settlementTableId,
+    tableOptionsLoading,
+    loadFields,
+  ]);
 
   async function generate() {
     if (!effectiveCtx) return;
@@ -764,6 +821,7 @@ export function App() {
       {viewTab === "main" ? (
       <div className="grid">
         <label>{t.businessTableAuto}</label>
+        {tableOptionsLoading ? <p className="muted" style={{ marginTop: 2 }}>{t.tablesLoading}</p> : null}
         {tableOptions.length > 0 ? (
           <select value={businessTableId} onChange={(e) => setBusinessTableId(e.target.value)} disabled={tableOptionsLoading}>
             {tableOptions.map((t) => (
@@ -812,8 +870,8 @@ export function App() {
           <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
           <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
         </div>
-        <button className="primary" onClick={loadFields} disabled={loading || !effectiveCtx?.appToken}>
-          {t.readFields}
+        <button type="button" onClick={() => void loadFields()} disabled={loading || !effectiveCtx?.appToken}>
+          {t.reloadFields}
         </button>
         {fieldLoadSummary ? <p className="muted" style={{ marginTop: 6 }}>{fieldLoadSummary}</p> : null}
       </div>
@@ -1008,14 +1066,14 @@ export function App() {
             <div style={{ fontWeight: 600, marginBottom: 6 }}>{tr("使用说明", "Usage Guide")}</div>
             <div className="muted">
               {tr(
-                "1. 进入「对账」页：插件会自动读取当前多维表的 Base appToken（网页可从地址参数带入）。请等待表列表出现后选择销售/采购表与收款/付款表，再点「读取字段」。",
-                "1. On Reconcile: appToken is auto-read from Bitable (or URL on web). Pick sales/purchase and receipt/payment tables, then Load Fields."
+                "1. 进入「对账」页：会自动读取 Base appToken，并加载子表列表；请选择销售/采购表与收款/付款表后，系统会自动读取字段与客户列表（无需再点按钮）。更换子表后可点「重新读取字段」。",
+                "1. On Reconcile: appToken is auto-read; pick sales/purchase and receipt/payment tables — fields load automatically. Use Reload fields after changing tables."
               )}
             </div>
             <div className="muted">
               {tr(
-                "2. 点击「读取字段」后，会显示两侧字段数量与客户/供应商名称条数；名称下拉会自动填充。若映射不准，展开「字段映射」手动指定。",
-                "2. After Load Fields, counts appear and the customer/vendor dropdown fills. Adjust mapping if needed."
+                "2. 读取完成后会显示字段摘要；客户/供应商下拉会自动填充。若映射不准，展开「字段映射」手动指定。",
+                "2. After loading, adjust field mapping in the expandable section if needed."
               )}
             </div>
             <div className="muted">
