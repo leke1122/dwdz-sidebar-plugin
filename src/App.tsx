@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { PLUGIN_BUILD_VERSION } from "./version";
 
 type ViewTab = "main" | "guide" | "settings";
@@ -23,12 +23,6 @@ const viteEnv =
     ? (import.meta as { env?: Record<string, string | undefined> }).env!
     : {};
 const API_BASE = (viteEnv.VITE_API_BASE_URL || "https://api.zxaigc.online").replace(/\/$/, "");
-const TEST_DEFAULTS = {
-  appToken: "TBU4buNX3acSVzs8M5FcN168nAc",
-  businessTableId: "tblTuBqWx31grIHS",
-  settlementTableId: "tblS7mZNU0Kd9h2S",
-};
-
 const I18N: Record<
   Lang,
   {
@@ -46,10 +40,18 @@ const I18N: Record<
     fieldsLoaded: string;
     envNotReady: string;
     envReady: string;
+    envPartial: string;
+    businessTableAuto: string;
+    settlementTableAuto: string;
+    partyNameRequired: string;
+    partySelectPlaceholder: string;
+    fieldMappingSummary: string;
+    businessMappingTitle: string;
+    settlementMappingTitle: string;
   }
 > = {
   "zh-CN": {
-    title: "智序对账插件（上架版）",
+    title: "智序销售应收采购应付对账插件",
     readFields: "读取字段",
     generate: "生成对账",
     quota: "剩余次数",
@@ -61,11 +63,19 @@ const I18N: Record<
     privacy: "隐私政策",
     terms: "服务条款",
     fieldsLoaded: "已读取字段数",
-    envNotReady: "未检测到飞书插件上下文，请从多维表插件侧栏打开。",
-    envReady: "已自动读取飞书上下文。",
+    envNotReady: "未自动读到 Base appToken：请从多维表记录视图/侧栏打开插件，或在地址中带上 appToken 参数；仍可在「设置」填写备用 appToken。",
+    envReady: "已自动读取 Base appToken（与当前多维表一致）。",
+    envPartial: "已读取 appToken，飞书用户标识将随容器就绪自动补齐；若功能异常请从记录视图重新打开。",
+    businessTableAuto: "销售/采购表（自动读取）",
+    settlementTableAuto: "收款/付款表（自动读取）",
+    partyNameRequired: "客户/供应商名称（必选）",
+    partySelectPlaceholder: "请选择客户/供应商",
+    fieldMappingSummary: "字段映射（销售/采购 ↔ 收款/付款，建议先读取字段）",
+    businessMappingTitle: "销售/采购表映射",
+    settlementMappingTitle: "收款/付款表映射",
   },
   "en-US": {
-    title: "Zhixu Reconciliation Plugin (Submission Build)",
+    title: "Zhixu Sales/AP & Purchase/AR Reconciliation Plugin",
     readFields: "Load Fields",
     generate: "Generate Reconciliation",
     quota: "Remaining Quota",
@@ -77,8 +87,17 @@ const I18N: Record<
     privacy: "Privacy Policy",
     terms: "Terms of Service",
     fieldsLoaded: "Loaded fields",
-    envNotReady: "Feishu plugin context not found. Open inside Bitable sidebar plugin.",
-    envReady: "Feishu plugin context loaded.",
+    envNotReady:
+      "Could not auto-read Base appToken: open the plugin from Bitable record view/sidebar, or pass appToken in the URL; you can still set a backup appToken in Settings.",
+    envReady: "Base appToken loaded (matches current Bitable).",
+    envPartial: "appToken loaded; user id will bind when the host is ready. Re-open from record view if something looks wrong.",
+    businessTableAuto: "Sales/Purchase table (auto)",
+    settlementTableAuto: "Receipt/Payment table (auto)",
+    partyNameRequired: "Customer/Vendor name (required)",
+    partySelectPlaceholder: "Select customer/vendor",
+    fieldMappingSummary: "Field mapping (sales/purchase ↔ receipt/payment; load fields first)",
+    businessMappingTitle: "Sales/Purchase table mapping",
+    settlementMappingTitle: "Receipt/Payment table mapping",
   },
 };
 
@@ -104,13 +123,81 @@ function fromUrl(): Partial<PluginContext> {
     return "";
   };
   return {
-    appToken: read("appToken", "app_token", "baseToken", "base_token"),
+    appToken: read("appToken", "app_token", "baseToken", "base_token", "bitableAppToken", "bitable_app_token"),
     tableId: read("tableId", "table_id"),
     userOpenId: read("openId", "open_id", "userId", "user_id", "larkUserId", "lark_user_id"),
   };
 }
 
-async function readContext(): Promise<PluginContext | null> {
+type PartialCtx = Partial<PluginContext>;
+
+function mergePartial(...parts: PartialCtx[]): PartialCtx {
+  const o: PartialCtx = {};
+  for (const p of parts) {
+    if (p.appToken && !o.appToken) o.appToken = p.appToken;
+    if (p.tableId && !o.tableId) o.tableId = p.tableId;
+    if (p.userOpenId && !o.userOpenId) o.userOpenId = p.userOpenId;
+  }
+  return o;
+}
+
+function fromWindowName(): PartialCtx {
+  try {
+    const raw = typeof window !== "undefined" ? window.name?.trim() : "";
+    if (!raw || raw[0] !== "{") return {};
+    const j = JSON.parse(raw) as Record<string, unknown>;
+    return {
+      appToken: pick(j.appToken) || pick(j.baseToken) || pick(j.app_token) || pick(j.base_token),
+      tableId: pick(j.tableId) || pick(j.table_id),
+      userOpenId: pick(j.openId) || pick(j.userOpenId) || pick(j.user_open_id) || pick(j.userId) || pick(j.user_id),
+    };
+  } catch {
+    return {};
+  }
+}
+
+function fromStorages(): PartialCtx {
+  if (typeof window === "undefined") return {};
+  try {
+    const ss = (k: string) => pick(sessionStorage.getItem(k));
+    const ls = (k: string) => pick(localStorage.getItem(k));
+    return {
+      appToken:
+        ss("bitable_app_token") ||
+        ss("lark_bitable_app_token") ||
+        ss("BITABLE_APP_TOKEN") ||
+        ls("dwdz.cachedAppToken"),
+      tableId: ls("dwdz.cachedTableId"),
+      userOpenId: ls("dwdz.manualUserId"),
+    };
+  } catch {
+    return {};
+  }
+}
+
+function stableUserFallback(appToken: string): string {
+  if (typeof window === "undefined") return "record-view-debug-user";
+  const key = "dwdz.fallbackUserOpenId";
+  let v = "";
+  try {
+    v = localStorage.getItem(key) ?? "";
+  } catch {
+    /* ignore */
+  }
+  if (!v) {
+    let h = 0;
+    for (let i = 0; i < appToken.length; i++) h = (h * 31 + appToken.charCodeAt(i)) >>> 0;
+    v = `plugin-u-${h.toString(16)}`;
+    try {
+      localStorage.setItem(key, v);
+    } catch {
+      /* ignore */
+    }
+  }
+  return v;
+}
+
+async function readPluginBitableContext(): Promise<PluginContext | null> {
   const w = window as Window & {
     feishu?: {
       appToken?: string;
@@ -158,52 +245,74 @@ async function readContext(): Promise<PluginContext | null> {
 
 
   const urlCtx = fromUrl();
-  let appToken = pick(w.feishu?.appToken) || pick(w.feishu?.baseToken) || pick(urlCtx.appToken);
-  let tableId = pick(w.feishu?.tableId) || pick(urlCtx.tableId);
-  let userOpenId = pick(w.feishu?.openId) || pick(w.feishu?.userId) || pick(urlCtx.userOpenId);
+  let bundle = mergePartial(
+    {},
+    fromStorages(),
+    fromWindowName(),
+    urlCtx,
+    {
+      appToken: pick(w.feishu?.appToken) || pick(w.feishu?.baseToken),
+      tableId: pick(w.feishu?.tableId),
+      userOpenId: pick(w.feishu?.openId) || pick(w.feishu?.userId),
+    }
+  );
 
-  if ((!appToken || !tableId || !userOpenId) && w.feishu?.getContext) {
+  if (w.feishu?.getContext) {
     try {
       const ctx = await w.feishu.getContext();
-      appToken =
-        appToken ||
-        pick(ctx.appToken) ||
-        pick(ctx.baseToken) ||
-        pick((ctx as { bitable?: { appToken?: string; baseToken?: string } }).bitable?.appToken) ||
-        pick((ctx as { bitable?: { appToken?: string; baseToken?: string } }).bitable?.baseToken);
-      tableId = tableId || pick(ctx.tableId) || pick((ctx as { bitable?: { tableId?: string } }).bitable?.tableId);
-      userOpenId =
-        userOpenId ||
-        pick(ctx.openId) ||
-        pick(ctx.userId) ||
-        pick((ctx as { user?: { openId?: string; userId?: string } }).user?.openId) ||
-        pick((ctx as { user?: { openId?: string; userId?: string } }).user?.userId);
+      bundle = mergePartial(bundle, {
+        appToken:
+          pick(ctx.appToken) ||
+          pick(ctx.baseToken) ||
+          pick((ctx as { bitable?: { appToken?: string; baseToken?: string } }).bitable?.appToken) ||
+          pick((ctx as { bitable?: { appToken?: string; baseToken?: string } }).bitable?.baseToken),
+        tableId: pick(ctx.tableId) || pick((ctx as { bitable?: { tableId?: string } }).bitable?.tableId),
+        userOpenId:
+          pick(ctx.openId) ||
+          pick(ctx.userId) ||
+          pick((ctx as { user?: { openId?: string; userId?: string } }).user?.openId) ||
+          pick((ctx as { user?: { openId?: string; userId?: string } }).user?.userId),
+      });
     } catch {
       // ignore
     }
   }
 
-  if ((!appToken || !tableId || !userOpenId) && (w.tt?.getEnvInfo || w.tt?.getContext)) {
+  if (w.tt?.getEnvInfo || w.tt?.getContext) {
     try {
       const env = (await callSdk(w.tt?.getContext)) || (await callSdk(w.tt?.getEnvInfo)) || {};
-      appToken =
-        appToken ||
-        pick(env.appToken) ||
-        pick(env.baseToken) ||
-        pick((env as { bitable?: { appToken?: string; baseToken?: string } }).bitable?.appToken) ||
-        pick((env as { bitable?: { appToken?: string; baseToken?: string } }).bitable?.baseToken);
-      tableId = tableId || pick(env.tableId) || pick((env as { bitable?: { tableId?: string } }).bitable?.tableId);
-      userOpenId =
-        userOpenId ||
-        pick(env.openId) ||
-        pick(env.userId) ||
-        pick((env as { user?: { openId?: string; userId?: string } }).user?.openId) ||
-        pick((env as { user?: { openId?: string; userId?: string } }).user?.userId);
+      bundle = mergePartial(bundle, {
+        appToken:
+          pick(env.appToken) ||
+          pick(env.baseToken) ||
+          pick((env as { bitable?: { appToken?: string; baseToken?: string } }).bitable?.appToken) ||
+          pick((env as { bitable?: { appToken?: string; baseToken?: string } }).bitable?.baseToken),
+        tableId: pick(env.tableId) || pick((env as { bitable?: { tableId?: string } }).bitable?.tableId),
+        userOpenId:
+          pick(env.openId) ||
+          pick(env.userId) ||
+          pick((env as { user?: { openId?: string; userId?: string } }).user?.openId) ||
+          pick((env as { user?: { openId?: string; userId?: string } }).user?.userId),
+      });
     } catch {
       // ignore
     }
   }
-  if (!appToken || !tableId || !userOpenId) return null;
+
+  const appToken = pick(bundle.appToken);
+  if (!appToken) return null;
+
+  const tableId = pick(bundle.tableId);
+  let userOpenId = pick(bundle.userOpenId);
+  if (!userOpenId && typeof window !== "undefined") {
+    try {
+      userOpenId = pick(window.localStorage.getItem("dwdz.manualUserId"));
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!userOpenId) userOpenId = stableUserFallback(appToken);
+
   return { appToken, tableId, userOpenId };
 }
 
@@ -232,8 +341,8 @@ export function App() {
   const [lang, setLang] = useState<Lang>("zh-CN");
   const [ctx, setCtx] = useState<PluginContext | null>(null);
   const mode = "sales_receipt" as const;
-  const [businessTableId, setBusinessTableId] = useState(TEST_DEFAULTS.businessTableId);
-  const [settlementTableId, setSettlementTableId] = useState(TEST_DEFAULTS.settlementTableId);
+  const [businessTableId, setBusinessTableId] = useState("");
+  const [settlementTableId, setSettlementTableId] = useState("");
   const [tableOptions, setTableOptions] = useState<TableOption[]>([]);
   const [tableOptionsLoading, setTableOptionsLoading] = useState(false);
   const [businessFields, setBusinessFields] = useState<FieldOption[]>([]);
@@ -261,31 +370,30 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [activationCode, setActivationCode] = useState("");
   const [contextHint, setContextHint] = useState("");
-  const [manualAppToken, setManualAppToken] = useState(TEST_DEFAULTS.appToken);
+  const [manualAppToken, setManualAppToken] = useState("");
   const [manualUserId, setManualUserId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerOptions, setCustomerOptions] = useState<string[]>([]);
   const [loadStats, setLoadStats] = useState<LoadStats | null>(null);
   const [debugInfo, setDebugInfo] = useState("");
   const [quotaLogs, setQuotaLogs] = useState<QuotaLogItem[]>([]);
+  const [fieldLoadSummary, setFieldLoadSummary] = useState("");
 
   const needActivation = remainingQuota !== null && remainingQuota <= 0;
   const isZh = lang === "zh-CN";
   const tr = (zh: string, en: string) => (isZh ? zh : en);
-  const modeLabel =
-    mode === "purchase_payment"
-      ? [tr("采购", "Purchase"), tr("付款", "Payment"), tr("供应商", "Vendor")]
-      : [tr("销售", "Sales"), tr("收款", "Receipt"), tr("客户", "Customer")];
+  const partyShort = tr("客户/供应商", "Customer/Vendor");
   const t = I18N[lang];
 
   const effectiveCtx = useMemo(() => {
     if (ctx) return ctx;
     const appToken = manualAppToken.trim();
     if (!appToken) return null;
+    const userOpenId = manualUserId.trim() || stableUserFallback(appToken);
     return {
       appToken,
-      tableId: businessTableId.trim() || settlementTableId.trim(),
-      userOpenId: manualUserId.trim() || "record-view-debug-user",
+      tableId: businessTableId.trim() || settlementTableId.trim() || "",
+      userOpenId,
     };
   }, [ctx, manualAppToken, manualUserId, businessTableId, settlementTableId]);
 
@@ -294,32 +402,75 @@ export function App() {
       effectiveCtx
         ? {
             "x-lark-app-token": effectiveCtx.appToken,
-            "x-lark-table-id": effectiveCtx.tableId,
+            "x-lark-table-id":
+              (effectiveCtx.tableId && effectiveCtx.tableId.trim()) ||
+              businessTableId.trim() ||
+              settlementTableId.trim() ||
+              "",
             "x-lark-user-id": effectiveCtx.userOpenId,
           }
         : {},
-    [effectiveCtx]
+    [effectiveCtx, businessTableId, settlementTableId]
   );
 
   useEffect(() => {
+    let cancelled = false;
+    const hints = I18N[lang];
     const cachedUserId =
       typeof window !== "undefined" ? window.localStorage.getItem("dwdz.manualUserId") ?? "" : "";
-    readContext().then((c) => {
-      if (c) {
+
+    async function attempt(i: number) {
+      const c = await readPluginBitableContext();
+      if (cancelled) return;
+      if (c?.appToken) {
         setCtx(c);
-        setBusinessTableId((prev) => prev || c.tableId);
-        setSettlementTableId((prev) => prev || c.tableId);
-        setContextHint(t.envReady);
+        if (c.tableId) {
+          setBusinessTableId((prev) => prev || c.tableId);
+          setSettlementTableId((prev) => prev || c.tableId);
+        }
+        try {
+          localStorage.setItem("dwdz.cachedAppToken", c.appToken);
+          if (c.tableId) localStorage.setItem("dwdz.cachedTableId", c.tableId);
+        } catch {
+          /* ignore */
+        }
         setManualAppToken(c.appToken);
-        setManualUserId(c.userOpenId);
-      } else {
-        setMessage(t.envNotReady);
-        const urlCtx = fromUrl();
-        setManualAppToken(urlCtx.appToken ?? TEST_DEFAULTS.appToken);
-        setManualUserId(cachedUserId || `debug-${Date.now().toString(36)}`);
+        const synthetic = c.userOpenId.startsWith("plugin-u-");
+        if (!synthetic) {
+          setManualUserId(c.userOpenId);
+        } else if (cachedUserId) {
+          setManualUserId(cachedUserId);
+        } else {
+          setManualUserId(c.userOpenId);
+        }
+        setContextHint(synthetic && !cachedUserId ? hints.envPartial : hints.envReady);
+        setMessage("");
+        return;
       }
-    });
-  }, [t.envNotReady, t.envReady]);
+      if (i < 8) {
+        setTimeout(() => attempt(i + 1), 350);
+        return;
+      }
+      setCtx(null);
+      setMessage(hints.envNotReady);
+      const urlCtx = fromUrl();
+      setManualAppToken(urlCtx.appToken ?? "");
+      setManualUserId(cachedUserId || urlCtx.userOpenId || "");
+      setContextHint("");
+    }
+
+    attempt(0);
+    return () => {
+      cancelled = true;
+    };
+  }, [lang]);
+
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    const u = fromUrl();
+    if (u.appToken) setManualAppToken((prev) => prev || u.appToken || "");
+    if (u.userOpenId) setManualUserId((prev) => prev || u.userOpenId || "");
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -374,18 +525,23 @@ export function App() {
   }
 
   async function loadFields() {
-    if (!effectiveCtx) return;
+    if (!effectiveCtx?.appToken) return;
+    if (!businessTableId.trim() || !settlementTableId.trim()) {
+      setMessage(tr("请先等待数据表列表加载完成，并选择销售/采购表与收款/付款表。", "Wait for the table list, then select sales/purchase and receipt/payment tables."));
+      return;
+    }
     setLoading(true);
     setMessage("");
+    setFieldLoadSummary("");
     setDebugInfo("");
     setLoadingHint(tr("读取中…", "Loading fields..."));
     try {
       const b = await fetch(api(`/api/get-table-fields?tableId=${encodeURIComponent(businessTableId)}`), { headers });
       const bj = await b.json();
-      if (!b.ok || !bj.success) throw new Error(bj.message || tr("读取业务表字段失败", "Failed to load business fields"));
+      if (!b.ok || !bj.success) throw new Error(bj.message || tr("读取销售/采购表字段失败", "Failed to load sales/purchase fields"));
       const s = await fetch(api(`/api/get-table-fields?tableId=${encodeURIComponent(settlementTableId)}`), { headers });
       const sj = await s.json();
-      if (!s.ok || !sj.success) throw new Error(sj.message || tr("读取结算表字段失败", "Failed to load settlement fields"));
+      if (!s.ok || !sj.success) throw new Error(sj.message || tr("读取收款/付款表字段失败", "Failed to load receipt/payment fields"));
       setBusinessFields(bj.fields ?? []);
       setSettlementFields(sj.fields ?? []);
       setCustomerOptions([]);
@@ -410,23 +566,36 @@ export function App() {
         }),
       });
       const optionsJson = await optionsResp.json();
+      const bFields = (bj.fields ?? []) as FieldOption[];
+      const sFields = (sj.fields ?? []) as FieldOption[];
+      const bCount = bFields.length;
+      const sCount = sFields.length;
+      let custCount = 0;
       if (optionsResp.ok && optionsJson.success) {
-        setCustomerOptions(Array.isArray(optionsJson.options) ? optionsJson.options : []);
+        const opts = Array.isArray(optionsJson.options) ? (optionsJson.options as string[]) : [];
+        custCount = opts.length;
+        setCustomerOptions(opts);
         const debug = optionsJson.debug || {};
-        const optionCount = Array.isArray(optionsJson.options) ? optionsJson.options.length : 0;
         const bs = Array.isArray(debug.businessSamples) ? debug.businessSamples.join(" | ") : "-";
         const ss = Array.isArray(debug.settlementSamples) ? debug.settlementSamples.join(" | ") : "-";
         setDebugInfo(
           tr(
-            `客户选项:${optionCount}；销售客户字段:${debug.businessFieldId ?? "-"}(${debug.businessOptionsCount ?? 0})；收款客户字段:${debug.settlementFieldId ?? "-"}(${debug.settlementOptionsCount ?? 0})；销售样本:${bs}；收款样本:${ss}`,
-            `Customer options:${optionCount}; Sales customer field:${debug.businessFieldId ?? "-"}(${debug.businessOptionsCount ?? 0}); Receipt customer field:${debug.settlementFieldId ?? "-"}(${debug.settlementOptionsCount ?? 0}); Sales samples:${bs}; Receipt samples:${ss}`
+            `客户/供应商选项:${custCount}；销售/采购侧字段:${debug.businessFieldId ?? "-"}(${debug.businessOptionsCount ?? 0})；收款/付款侧字段:${debug.settlementFieldId ?? "-"}(${debug.settlementOptionsCount ?? 0})；销售/采购样本:${bs}；收款/付款样本:${ss}`,
+            `Customer/vendor options:${custCount}; Sales/purchase side:${debug.businessFieldId ?? "-"}(${debug.businessOptionsCount ?? 0}); Receipt/payment side:${debug.settlementFieldId ?? "-"}(${debug.settlementOptionsCount ?? 0}); Samples:${bs} / ${ss}`
           )
         );
       } else {
-        setDebugInfo(`${tr("客户选项接口失败", "Customer options API failed")}: ${optionsJson.message ?? "unknown"}`);
+        setCustomerOptions([]);
+        setDebugInfo(`${tr("客户/供应商列表接口失败", "Customer/vendor list API failed")}: ${optionsJson.message ?? "unknown"}`);
       }
-      setMessage(tr("字段读取成功。", "Fields loaded successfully."));
+      const summary = tr(
+        `已读取：销售/采购表字段 ${bCount} 个；收款/付款表字段 ${sCount} 个；客户/供应商名称 ${custCount} 条（已填入下方下拉）。`,
+        `Loaded: ${bCount} sales/purchase field(s); ${sCount} receipt/payment field(s); ${custCount} customer/vendor name(s) in the dropdown.`
+      );
+      setFieldLoadSummary(summary);
+      setMessage(tr("字段与客户/供应商列表读取完成。", "Fields and customer/vendor list loaded."));
     } catch (e) {
+      setFieldLoadSummary("");
       setMessage(e instanceof Error ? e.message : tr("读取失败", "Load failed"));
     } finally {
       setLoadingHint("");
@@ -446,7 +615,7 @@ export function App() {
           : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
       setLastIdempotencyKey(idempotencyKey);
       if (!customerName)
-        throw new Error(tr(`请选择${modeLabel[2]}名称后再生成对账单`, `Please select ${modeLabel[2]} before generating`));
+        throw new Error(tr(`请选择${partyShort}名称后再生成对账单`, `Please select ${partyShort} before generating`));
       const resp = await fetch(api("/api/generate-ledger"), {
         method: "POST",
         headers: { "content-type": "application/json", "x-idempotency-key": idempotencyKey, ...headers },
@@ -566,11 +735,15 @@ export function App() {
         </button>
       </div>
       {contextHint ? <p className="muted">{contextHint}</p> : null}
-      {ctx ? <p className="muted">{tr("当前用户标识", "Current User ID")}: {ctx.userOpenId}</p> : null}
+      {effectiveCtx?.userOpenId ? (
+        <p className="muted">
+          {tr("当前用户标识", "Current User ID")}: {effectiveCtx.userOpenId}
+        </p>
+      ) : null}
 
       {viewTab === "main" ? (
       <div className="grid">
-        <label>{modeLabel[0]}{tr("表（自动读取）", " table (auto)")}</label>
+        <label>{t.businessTableAuto}</label>
         {tableOptions.length > 0 ? (
           <select value={businessTableId} onChange={(e) => setBusinessTableId(e.target.value)} disabled={tableOptionsLoading}>
             {tableOptions.map((t) => (
@@ -582,7 +755,7 @@ export function App() {
         ) : (
           <input value={businessTableId} onChange={(e) => setBusinessTableId(e.target.value)} placeholder={tr("自动读取失败时可手填 table_id", "Manual table_id if auto-load fails")} />
         )}
-        <label>{modeLabel[1]}{tr("表（自动读取）", " table (auto)")}</label>
+        <label>{t.settlementTableAuto}</label>
         {tableOptions.length > 0 ? (
           <select
             value={settlementTableId}
@@ -598,9 +771,16 @@ export function App() {
         ) : (
           <input value={settlementTableId} onChange={(e) => setSettlementTableId(e.target.value)} placeholder={tr("自动读取失败时可手填 table_id", "Manual table_id if auto-load fails")} />
         )}
-        <label>{modeLabel[2]}{tr("名称（必选）", " name (required)")}</label>
+        <label>
+          {t.partyNameRequired}
+          {customerOptions.length > 0 ? (
+            <span className="muted" style={{ marginLeft: 6, fontWeight: 400 }}>
+              {tr(`已加载 ${customerOptions.length} 条`, `${customerOptions.length} loaded`)}
+            </span>
+          ) : null}
+        </label>
         <select value={customerName} onChange={(e) => setCustomerName(e.target.value)}>
-          <option value="">{tr("请选择", "Please select ")}{modeLabel[2]}</option>
+          <option value="">{t.partySelectPlaceholder}</option>
           {customerOptions.map((name) => (
             <option key={name} value={name}>
               {name}
@@ -612,19 +792,20 @@ export function App() {
           <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
           <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
         </div>
-        <button className="primary" onClick={loadFields} disabled={loading || !effectiveCtx}>
+        <button className="primary" onClick={loadFields} disabled={loading || !effectiveCtx?.appToken}>
           {t.readFields}
         </button>
+        {fieldLoadSummary ? <p className="muted" style={{ marginTop: 6 }}>{fieldLoadSummary}</p> : null}
       </div>
       ) : null}
 
       {viewTab === "main" ? (
       <details style={{ marginTop: 10 }}>
-        <summary>{tr("字段映射（建议先读取字段）", "Field mapping (load fields first)")}</summary>
+        <summary>{t.fieldMappingSummary}</summary>
         <div style={{ marginTop: 8, padding: 8, border: "1px solid #e5e7eb", borderRadius: 8 }}>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>{modeLabel[0]}{tr("表映射", " mapping")}</div>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>{t.businessMappingTitle}</div>
           <div className="grid">
-            <label>{modeLabel[0]}{tr("表客户字段", " customer field")}</label>
+            <label>{tr("销售/采购表 — 客户/供应商字段", "Sales/Purchase — customer/vendor field")}</label>
             <select value={businessCustomerField} onChange={(e) => setBusinessCustomerField(e.target.value)}>
               <option value="">{tr("自动识别", "Auto detect")}</option>
               {businessFields.map((f) => (
@@ -633,7 +814,7 @@ export function App() {
                 </option>
               ))}
             </select>
-            <label>{modeLabel[0]}{tr("表金额字段", " amount field")}</label>
+            <label>{tr("销售/采购表 — 金额字段", "Sales/Purchase — amount field")}</label>
             <select value={businessAmountField} onChange={(e) => setBusinessAmountField(e.target.value)}>
               <option value="">{tr("自动识别", "Auto detect")}</option>
               {businessFields.map((f) => (
@@ -642,7 +823,7 @@ export function App() {
                 </option>
               ))}
             </select>
-            <label>{modeLabel[0]}{tr("表日期字段", " date field")}</label>
+            <label>{tr("销售/采购表 — 日期字段", "Sales/Purchase — date field")}</label>
             <select value={businessDateField} onChange={(e) => setBusinessDateField(e.target.value)}>
               <option value="">{tr("自动识别", "Auto detect")}</option>
               {businessFields.map((f) => (
@@ -651,7 +832,7 @@ export function App() {
                 </option>
               ))}
             </select>
-            <label>{modeLabel[0]}{tr("表显示字段（可勾选）", " display fields (optional)")}</label>
+            <label>{tr("销售/采购表 — 显示字段（可勾选）", "Sales/Purchase — display fields (optional)")}</label>
             <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 8 }}>
               <div className="muted" style={{ marginBottom: 6 }}>
                 {tr("已选", "Selected")}: {businessDisplayFields.length ? businessDisplayFields.map((id) => businessFields.find((f) => f.id === id)?.name ?? id).join(isZh ? "、" : ", ") : tr("无", "None")}
@@ -682,9 +863,9 @@ export function App() {
           </div>
         </div>
         <div style={{ marginTop: 8, padding: 8, border: "1px solid #e5e7eb", borderRadius: 8 }}>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>{modeLabel[1]}{tr("表映射", " mapping")}</div>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>{t.settlementMappingTitle}</div>
           <div className="grid">
-            <label>{modeLabel[1]}{tr("表客户字段", " customer field")}</label>
+            <label>{tr("收款/付款表 — 客户/供应商字段", "Receipt/Payment — customer/vendor field")}</label>
             <select value={settlementCustomerField} onChange={(e) => setSettlementCustomerField(e.target.value)}>
               <option value="">{tr("自动识别", "Auto detect")}</option>
               {settlementFields.map((f) => (
@@ -693,7 +874,7 @@ export function App() {
                 </option>
               ))}
             </select>
-            <label>{modeLabel[1]}{tr("表金额字段", " amount field")}</label>
+            <label>{tr("收款/付款表 — 金额字段", "Receipt/Payment — amount field")}</label>
             <select value={settlementAmountField} onChange={(e) => setSettlementAmountField(e.target.value)}>
               <option value="">{tr("自动识别", "Auto detect")}</option>
               {settlementFields.map((f) => (
@@ -702,7 +883,7 @@ export function App() {
                 </option>
               ))}
             </select>
-            <label>{modeLabel[1]}{tr("表日期字段", " date field")}</label>
+            <label>{tr("收款/付款表 — 日期字段", "Receipt/Payment — date field")}</label>
             <select value={settlementDateField} onChange={(e) => setSettlementDateField(e.target.value)}>
               <option value="">{tr("自动识别", "Auto detect")}</option>
               {settlementFields.map((f) => (
@@ -711,7 +892,7 @@ export function App() {
                 </option>
               ))}
             </select>
-            <label>{modeLabel[1]}{tr("表显示字段（可勾选）", " display fields (optional)")}</label>
+            <label>{tr("收款/付款表 — 显示字段（可勾选）", "Receipt/Payment — display fields (optional)")}</label>
             <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 8 }}>
               <div className="muted" style={{ marginBottom: 6 }}>
                 {tr("已选", "Selected")}: {settlementDisplayFields.length ? settlementDisplayFields.map((id) => settlementFields.find((f) => f.id === id)?.name ?? id).join(isZh ? "、" : ", ") : tr("无", "None")}
@@ -805,10 +986,30 @@ export function App() {
         <div className="grid" style={{ marginTop: 10 }}>
           <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 10 }}>
             <div style={{ fontWeight: 600, marginBottom: 6 }}>{tr("使用说明", "Usage Guide")}</div>
-            <div className="muted">{tr("1. 进入“对账”页后先选择销售表和收款表，点击“读取字段”。", "1. Select business and settlement tables, then click Load Fields.")}</div>
-            <div className="muted">{tr("2. 如系统自动识别字段不准确，请展开“字段映射”手动指定客户字段、金额字段、日期字段。", "2. If auto mapping is inaccurate, set customer/amount/date fields manually.")}</div>
-            <div className="muted">{tr("3. 字段映射作用：告诉系统每张表里“谁是客户、谁是金额、谁是日期”，避免识别错误导致结果为空或金额异常。", "3. Field mapping tells the system which columns are customer, amount and date.")}</div>
-            <div className="muted">{tr("4. 多选显示字段作用：可把业务表/收款表中的附加信息（如规格、数量、单价、收款方式）带入对账明细。", "4. Optional display fields include additional details in generated ledger.")}</div>
+            <div className="muted">
+              {tr(
+                "1. 进入「对账」页：插件会自动读取当前多维表的 Base appToken（网页可从地址参数带入）。请等待表列表出现后选择销售/采购表与收款/付款表，再点「读取字段」。",
+                "1. On Reconcile: appToken is auto-read from Bitable (or URL on web). Pick sales/purchase and receipt/payment tables, then Load Fields."
+              )}
+            </div>
+            <div className="muted">
+              {tr(
+                "2. 点击「读取字段」后，会显示两侧字段数量与客户/供应商名称条数；名称下拉会自动填充。若映射不准，展开「字段映射」手动指定。",
+                "2. After Load Fields, counts appear and the customer/vendor dropdown fills. Adjust mapping if needed."
+              )}
+            </div>
+            <div className="muted">
+              {tr(
+                "3. 字段映射用于标明销售/采购表、收款/付款表中「客户/供应商、金额、日期」对应列，避免识别错误。",
+                "3. Field mapping pins customer/vendor, amount, and date columns on each side."
+              )}
+            </div>
+            <div className="muted">
+              {tr(
+                "4. 显示字段可多选，把表内附加列（规格、数量、单价、收付款方式等）带入对账明细。",
+                "4. Optional display columns carry extra detail into the ledger."
+              )}
+            </div>
             <div className="muted">{tr("5. 备注字段如在两张表都勾选，会自动合并为对账单中的“备注”列。", "5. Remark fields from both tables are merged into a single Remark column.")}</div>
             <div className="muted">{tr("6. 选择客户和日期范围，再点击“生成对账”；生成完成后可导出 Excel / CSV。", "6. Select customer and date range, click Generate, then export Excel/CSV.")}</div>
             <div className="muted">{tr("7. 如提示试用次数用完，请到“设置”页查看如何获取激活码。", "7. If trial quota is exhausted, go to Settings for activation instructions.")}</div>
@@ -818,10 +1019,14 @@ export function App() {
 
       {viewTab === "main" ? (
       <>
-      {!ctx ? <p className="muted">{tr("未检测到飞书上下文，可前往“设置”页填写备用 Base appToken。", "Feishu context not detected. Fill backup Base appToken in Settings.")}</p> : null}
+      {!effectiveCtx?.appToken ? (
+        <p className="muted">
+          {tr("未检测到 Base appToken：请在多维表记录视图打开本插件，或在网页地址中携带 appToken；也可在「设置」填写备用 appToken。", "No Base appToken: open from Bitable record view, pass appToken in the URL, or set backup appToken in Settings.")}
+        </p>
+      ) : null}
       {loadStats ? (
         <p className="muted">
-          {modeLabel[0]}{tr("表读取条数", " rows")}: {loadStats.business}；{modeLabel[1]}{tr("表读取条数", " rows")}: {loadStats.settlement}；{tr("总条数", "Total")}:
+          {tr("销售/采购表读取条数", "Sales/Purchase rows")}: {loadStats.business}；{tr("收款/付款表读取条数", "Receipt/Payment rows")}: {loadStats.settlement}；{tr("总条数", "Total")}:
           {loadStats.total}
         </p>
       ) : null}
@@ -852,9 +1057,9 @@ export function App() {
           <table>
             <thead>
               <tr>
-                <th>{modeLabel[2]}</th>
-                <th>{modeLabel[0]}{tr("金额", " Amount")}</th>
-                <th>{modeLabel[1]}{tr("金额", " Amount")}</th>
+                <th>{partyShort}</th>
+                <th>{tr("销售/采购金额", "Sales/Purchase amt")}</th>
+                <th>{tr("收款/付款金额", "Receipt/Payment amt")}</th>
                 <th>{tr("差额", "Difference")}</th>
               </tr>
             </thead>
@@ -911,7 +1116,10 @@ export function App() {
       {viewTab === "main" ? (
         <details style={{ marginTop: 10 }}>
           <summary>{t.fieldsLoaded}</summary>
-          <div>{modeLabel[0]}{tr("表字段", " fields")}: {businessFields.length}，{modeLabel[1]}{tr("表字段", " fields")}: {settlementFields.length}</div>
+          <div>
+            {tr("销售/采购表字段", "Sales/Purchase fields")}: {businessFields.length}，{tr("收款/付款表字段", "Receipt/Payment fields")}:{" "}
+            {settlementFields.length}
+          </div>
         </details>
       ) : null}
     </main>
