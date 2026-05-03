@@ -7,6 +7,8 @@ const requiredFiles = [
   "app.css",
   "index.json",
   "block.json",
+  "app.json",
+  "project.config.json",
 ];
 
 async function main() {

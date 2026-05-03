@@ -9,7 +9,7 @@
 
 ## 单一真源
 
-- 前端唯一发布源：`dwdz-sidebar-plugin-temp`
+- 前端唯一发布源：Git 仓库内 `plugin-center/sidebar-plugin`
 - 禁止从其他目录发布前端包
 - **插件对外版本号只认一处**：`src/version.ts` 里的 `PLUGIN_BUILD_VERSION`。改版本只改这里；`package.json` 的 `version` 与之保持同步，便于扫一眼仓库。
 

@@ -1,68 +1,30 @@
-# Sidebar Plugin Submission Build
+# 飞书多维表对账插件（智序对账）
 
-这个子项目用于生成符合飞书多维表“边栏插件共享提报”要求的前端静态产物：
+面向飞书插件中心提报的 **多维表边栏插件（offlineWeb）** 仓库。业务功能：销售/收款、采购/付款场景下的字段读取、明细对账、Excel/CSV 导出与对账单版式图。
 
-- 构建产物目录：`dist`
-- 资源引用路径：相对路径（`base: "./"`）
-- 不使用 history 路由（单页无路由）
-- 后端地址可配置：`VITE_API_BASE_URL`
+## 飞书提报要求的目录结构
 
-## 本地运行
+| 路径 | 说明 |
+|------|------|
+| [`plugin-center/sidebar-plugin/`](plugin-center/sidebar-plugin/) | **上架版前端**：`package.json`、`src/`、`scripts/`、飞书清单 `block.json` / `index.json` / `app.json` / `project.config.json` |
+| [`plugin-center/sidebar-plugin/dist/`](plugin-center/sidebar-plugin/dist/) | **`npm run build:block` 构建产物**：入口 **`index.html`** 与 `app.js`、`app.css`、清单副本同级（记录视图容器要求） |
+| [`plugin-center/sidebar-plugin/docs/feishu-submission-checklist.md`](plugin-center/sidebar-plugin/docs/feishu-submission-checklist.md) | 上架自检清单 |
+
+所有开发、构建、`opdev upload` 均在 **`plugin-center/sidebar-plugin`** 目录下执行。
 
 ```bash
 cd plugin-center/sidebar-plugin
 npm install
-copy .env.example .env
-npm run dev
-```
-
-## 版本号
-
-**只改 `src/version.ts` 里的 `PLUGIN_BUILD_VERSION`**（并与根目录 `package.json` 的 `version` 保持一致）。网页标题、加载页、小组件 UI、`opdev -v` 均依赖这一处。
-
-- 查看当前发布号：`npm run release:version`
-
-## 打包提报
-
-```bash
-# 推荐：构建 + 校验 + 上传（-v 自动等于 PLUGIN_BUILD_VERSION，避免版本漂移）
-npm run release:upload:block
-```
-
-手动分步（不推荐，易与源码版本号不一致）：
-
-```bash
 npm run build:block
 npm run verify:block-dist
-opdev upload ./dist -t block -p pc -v <必须与 src/version.ts 一致> -d "<description>"
 ```
 
-注意：`index.html` 必须位于 `dist` 根目录（与 `app.js`/`app.css` 同级），否则飞书记录视图容器无法加载。
+详细说明见 [`plugin-center/sidebar-plugin/README.md`](plugin-center/sidebar-plugin/README.md)。
 
-## 发布后自检
+## Vercel（网页托管）
 
-```bash
-npm run self-check
-```
+若将 **本仓库** 接入 Vercel，请在项目设置中将 **Root Directory** 设为 **`plugin-center/sidebar-plugin`**，以便读取该目录下的 `vercel.json` 并执行 `build:block`。本地 CLI 也请在同一子目录下运行 `npx vercel`。
 
-自检会输出：
+## 参考示例仓库说明
 
-- 本地代码版本（`PLUGIN_BUILD_VERSION`）
-- `plugin.zxaigc.online` 实际线上版本
-- `api.zxaigc.online/api/health` 状态
-
-若版本不一致或 API 不健康，自检会返回非 0 退出码，便于在发布流程中阻断。
-
-## 发布规范（强制）
-
-见 `RELEASE_POLICY.md`，按“网页链路 + 飞书记录视图链路”双发布执行，避免版本漂移。
-
-## 对接后端
-
-`VITE_API_BASE_URL` 指向你的对账后端（当前建议使用 `E:/dwdz` 部署出的服务）：
-
-- `GET /api/get-table-fields`
-- `POST /api/generate-reconciliation`
-- `GET /api/export-file`
-- `POST /api/validate-activation-code`
-
+若对照 [`feishu-bitable-reconcile`](https://github.com/leke1122/feishu-bitable-reconcile) 类模板：典型要求为 **静态入口 `dist/index.html`**、相对路径资源、`block.json` / `index.json` 与插件类型一致；本仓库以上条目由 `build:block` + `verify:block-dist` 强制校验。

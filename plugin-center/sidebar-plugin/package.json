@@ -1,6 +1,6 @@
 {
   "name": "dwdz-sidebar-plugin",
-  "version": "0.0.103",
+  "version": "0.0.105",
   "private": true,
   "type": "module",
   "output": "dist",
@@ -13,7 +13,7 @@
     "self-check": "node ./scripts/self-check.mjs",
     "release:version": "node ./scripts/read-plugin-version.mjs",
     "release:upload:block": "node ./scripts/release-upload-block.mjs",
-    "release:vercel:prod": "vercel deploy --prod --yes",
+    "release:vercel:prod": "npx --yes vercel deploy --prod --yes",
     "release:ship:test": "npm run release:vercel:prod && npm run release:upload:block"
   },
   "dependencies": {

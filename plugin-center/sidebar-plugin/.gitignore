@@ -80,7 +80,10 @@ out
 
 # Nuxt.js build / generate output
 .nuxt
-dist
+
+# 上架静态包：`npm run build:block` 写入 ./dist（须含 index.html），建议纳入 Git 供审核。
+# 本地 `vite build` 写入 ./dist-web，勿与上架 dist 混淆。
+dist-web
 
 # Gatsby files
 .cache/

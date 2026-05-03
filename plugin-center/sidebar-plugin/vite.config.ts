@@ -5,7 +5,8 @@ export default defineConfig({
   plugins: [react()],
   base: "./",
   build: {
-    outDir: "dist",
+    /** 与飞书上架包 `dist/` 分离，避免误执行 `vite build` 覆盖 `build:block` 产物 */
+    outDir: "dist-web",
     sourcemap: false,
     target: "es2015",
   },

@@ -47,6 +47,10 @@ const I18N: Record<
     settlementTableAuto: string;
     tablesLoading: string;
     reloadFields: string;
+    saveMappingDefault: string;
+    saveMappingDefaultDone: string;
+    clearMappingDefault: string;
+    clearMappingDefaultDone: string;
     reloadTablesList: string;
     tableUntitled: string;
     tablesNoneHint: string;
@@ -85,6 +89,11 @@ const I18N: Record<
     settlementTableAuto: "收款/付款表（选择子表）",
     tablesLoading: "正在加载多维表子表列表…",
     reloadFields: "重新读取字段",
+    saveMappingDefault: "保存映射为默认",
+    saveMappingDefaultDone: "已保存为默认设置，下次读取字段后将自动应用。",
+    clearMappingDefault: "清除默认映射",
+    clearMappingDefaultDone:
+      "已清除当前 Base 与表组合下的默认映射（页面上的映射不变；下次「重新读取字段」后将不再自动套用已删的默认）。",
     reloadTablesList: "重新加载子表列表",
     tableUntitled: "未命名数据表",
     tablesNoneHint: "未获取到子表：请检查后端 /api/get-app-tables 是否已部署，或点击重新加载。",
@@ -92,7 +101,8 @@ const I18N: Record<
       "子表列表接口返回了网页而非 JSON（常见为 404 未部署）。请部署最新 dwdz-api 后点「重新加载子表列表」。",
     partyNameRequired: "客户/供应商名称（必选）",
     partySelectPlaceholder: "请选择客户/供应商",
-    fieldMappingSummary: "字段映射（销售/采购 ↔ 收款/付款；打开后已自动读取字段，可改子表后点「重新读取字段」）",
+    fieldMappingSummary:
+      "字段映射（销售/采购 ↔ 收款/付款；读取完成后可「保存映射为默认」或「清除默认映射」。同一插件会话内切换「设置/说明」回到对账页不会重复读取字段，换子表请点「重新读取字段」。",
     businessMappingTitle: "销售/采购表映射",
     settlementMappingTitle: "收款/付款表映射",
     statementImageTitle: "月度对账单图片",
@@ -125,6 +135,11 @@ const I18N: Record<
     settlementTableAuto: "Receipt/Payment table",
     tablesLoading: "Loading Bitable tables…",
     reloadFields: "Reload fields",
+    saveMappingDefault: "Save mapping as default",
+    saveMappingDefaultDone: "Saved. It will apply automatically the next time fields are loaded.",
+    clearMappingDefault: "Clear saved default mapping",
+    clearMappingDefaultDone:
+      "Removed saved mapping for this Base and table pair. On-screen selections are unchanged; Reload fields will no longer apply a deleted default.",
     reloadTablesList: "Reload table list",
     tableUntitled: "Untitled table",
     tablesNoneHint: "No tables loaded: deploy /api/get-app-tables or tap reload.",
@@ -133,7 +148,7 @@ const I18N: Record<
     partyNameRequired: "Customer/Vendor name (required)",
     partySelectPlaceholder: "Select customer/vendor",
     fieldMappingSummary:
-      "Field mapping (sales/purchase ↔ receipt/payment). Fields load automatically; use Reload fields after changing tables.",
+      "Field mapping (sales/purchase ↔ receipt/payment). After fields load you can Save mapping as default or Clear saved default mapping. Switching tabs in the same session does not reload fields; use Reload fields after changing tables.",
     businessMappingTitle: "Sales/Purchase table mapping",
     settlementMappingTitle: "Receipt/Payment table mapping",
     statementImageTitle: "Monthly statement image",
@@ -410,6 +425,98 @@ function parseFilenameFromDisposition(disposition: string | null): string {
   return plainMatch?.[1]?.trim() ?? "";
 }
 
+type SavedFieldMapping = {
+  businessCustomerField: string;
+  businessAmountField: string;
+  businessDateField: string;
+  businessDisplayFields: string[];
+  settlementCustomerField: string;
+  settlementAmountField: string;
+  settlementDateField: string;
+  settlementDisplayFields: string[];
+};
+
+const FIELD_MAPPING_STORAGE_PREFIX = "dwdz.fieldMapping.v1:";
+
+function fieldMappingStorageKey(
+  appToken: string,
+  mode: string,
+  businessTableId: string,
+  settlementTableId: string
+): string {
+  return `${FIELD_MAPPING_STORAGE_PREFIX}${appToken}:${mode}:${businessTableId}:${settlementTableId}`;
+}
+
+/** Same-session guard: skip redundant auto load when switching tabs back to main */
+function sessionFieldsHydrateKey(
+  appToken: string,
+  mode: string,
+  businessTableId: string,
+  settlementTableId: string
+): string {
+  return `${appToken}|${mode}|${businessTableId}|${settlementTableId}`;
+}
+
+function parseSavedMapping(raw: string): SavedFieldMapping | null {
+  try {
+    const j = JSON.parse(raw) as Partial<SavedFieldMapping>;
+    if (!j || typeof j !== "object") return null;
+    return {
+      businessCustomerField: typeof j.businessCustomerField === "string" ? j.businessCustomerField : "",
+      businessAmountField: typeof j.businessAmountField === "string" ? j.businessAmountField : "",
+      businessDateField: typeof j.businessDateField === "string" ? j.businessDateField : "",
+      businessDisplayFields: Array.isArray(j.businessDisplayFields)
+        ? j.businessDisplayFields.filter((x): x is string => typeof x === "string")
+        : [],
+      settlementCustomerField: typeof j.settlementCustomerField === "string" ? j.settlementCustomerField : "",
+      settlementAmountField: typeof j.settlementAmountField === "string" ? j.settlementAmountField : "",
+      settlementDateField: typeof j.settlementDateField === "string" ? j.settlementDateField : "",
+      settlementDisplayFields: Array.isArray(j.settlementDisplayFields)
+        ? j.settlementDisplayFields.filter((x): x is string => typeof x === "string")
+        : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function loadFieldMappingFromStorage(storageKey: string): SavedFieldMapping | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return null;
+    return parseSavedMapping(raw);
+  } catch {
+    return null;
+  }
+}
+
+function saveFieldMappingToStorage(storageKey: string, mapping: SavedFieldMapping): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(mapping));
+  } catch {
+    /* ignore quota */
+  }
+}
+
+function clearFieldMappingFromStorage(storageKey: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(storageKey);
+  } catch {
+    /* ignore */
+  }
+}
+
+function filterDisplayIds(ids: string[], allowed: Set<string>): string[] {
+  return ids.filter((id) => allowed.has(id));
+}
+
+function pickMappedId(id: string, allowed: Set<string>): string {
+  return id && allowed.has(id) ? id : "";
+}
+
 export function App() {
   const [viewTab, setViewTab] = useState<ViewTab>("main");
   const [lang, setLang] = useState<Lang>("zh-CN");
@@ -458,12 +565,36 @@ export function App() {
   const [fieldLoadSummary, setFieldLoadSummary] = useState("");
   /** 并发「读取字段」时丢弃过期结果 */
   const fieldsLoadGen = useRef(0);
+  /** 本会话已成功加载字段的表组合，用于避免切换 Tab 后重复请求 */
+  const fieldsHydratedForKeyRef = useRef("");
+  const mappingPersistFeedbackTimerRef = useRef<ReturnType<typeof window.setTimeout> | undefined>(undefined);
+  /** 保存/清除默认映射后在按钮旁短暂提示（避免 message 只在页面底部展示用户看不到） */
+  const [mappingPersistFeedback, setMappingPersistFeedback] = useState("");
 
   const needActivation = remainingQuota !== null && remainingQuota <= 0;
   const isZh = lang === "zh-CN";
   const tr = (zh: string, en: string) => (isZh ? zh : en);
   const partyShort = tr("客户/供应商", "Customer/Vendor");
   const t = I18N[lang];
+
+  const flashMappingPersistFeedback = useCallback((text: string) => {
+    if (mappingPersistFeedbackTimerRef.current !== undefined) {
+      window.clearTimeout(mappingPersistFeedbackTimerRef.current);
+    }
+    setMappingPersistFeedback(text);
+    mappingPersistFeedbackTimerRef.current = window.setTimeout(() => {
+      setMappingPersistFeedback("");
+      mappingPersistFeedbackTimerRef.current = undefined;
+    }, 4500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (mappingPersistFeedbackTimerRef.current !== undefined) {
+        window.clearTimeout(mappingPersistFeedbackTimerRef.current);
+      }
+    };
+  }, []);
 
   const statementModel = useMemo(
     () =>
@@ -548,6 +679,14 @@ export function App() {
         : {},
     [effectiveCtx, businessTableId, settlementTableId]
   );
+
+  const sessionFieldsKey = useMemo(() => {
+    const token = effectiveCtx?.appToken?.trim();
+    const b = businessTableId.trim();
+    const s = settlementTableId.trim();
+    if (!token || !b || !s) return "";
+    return sessionFieldsHydrateKey(token, mode, b, s);
+  }, [effectiveCtx?.appToken, mode, businessTableId, settlementTableId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -699,116 +838,196 @@ export function App() {
     return action;
   }
 
-  const loadFields = useCallback(async () => {
-    const loc = (zh: string, en: string) => (lang === "zh-CN" ? zh : en);
-    if (!effectiveCtx?.appToken) return;
-    if (!businessTableId.trim() || !settlementTableId.trim()) {
-      setMessage(loc("请先等待数据表列表加载完成，并选择销售/采购表与收款/付款表。", "Wait for the table list, then select sales/purchase and receipt/payment tables."));
-      return;
-    }
-    const gen = ++fieldsLoadGen.current;
-    const stale = () => fieldsLoadGen.current !== gen;
-
-    setLoading(true);
-    setMessage("");
-    setFieldLoadSummary("");
-    setDebugInfo("");
-    setLoadingHint(loc("读取中…", "Loading fields..."));
-    try {
-      const b = await fetch(api(`/api/get-table-fields?tableId=${encodeURIComponent(businessTableId)}`), { headers });
-      if (stale()) return;
-      const bj = await b.json();
-      if (!b.ok || !bj.success) throw new Error(bj.message || loc("读取销售/采购表字段失败", "Failed to load sales/purchase fields"));
-      if (stale()) return;
-      const s = await fetch(api(`/api/get-table-fields?tableId=${encodeURIComponent(settlementTableId)}`), { headers });
-      if (stale()) return;
-      const sj = await s.json();
-      if (!s.ok || !sj.success) throw new Error(sj.message || loc("读取收款/付款表字段失败", "Failed to load receipt/payment fields"));
-      if (stale()) return;
-      setBusinessFields(bj.fields ?? []);
-      setSettlementFields(sj.fields ?? []);
-      setCustomerOptions([]);
-      setCustomerName("");
-      setBusinessCustomerField("");
-      setBusinessAmountField("");
-      setBusinessDateField("");
-      setSettlementCustomerField("");
-      setSettlementAmountField("");
-      setSettlementDateField("");
-      setBusinessDisplayFields([]);
-      setSettlementDisplayFields([]);
-      setLedgerHeaders([]);
-      setRemainingQuota(bj.quota?.remainingQuota ?? sj.quota?.remainingQuota ?? null);
-      const optionsResp = await fetch(api("/api/customer-options"), {
-        method: "POST",
-        headers: { "content-type": "application/json", ...headers },
-        body: JSON.stringify({
-          mode,
-          businessTable: { tableId: businessTableId },
-          settlementTable: { tableId: settlementTableId },
-        }),
-      });
-      if (stale()) return;
-      const optionsJson = await optionsResp.json();
-      const bFields = (bj.fields ?? []) as FieldOption[];
-      const sFields = (sj.fields ?? []) as FieldOption[];
-      const bCount = bFields.length;
-      const sCount = sFields.length;
-      let custCount = 0;
-      if (optionsResp.ok && optionsJson.success) {
-        const opts = Array.isArray(optionsJson.options) ? (optionsJson.options as string[]) : [];
-        custCount = opts.length;
-        setCustomerOptions(opts);
-        const debug = optionsJson.debug || {};
-        const bs = Array.isArray(debug.businessSamples) ? debug.businessSamples.join(" | ") : "-";
-        const ss = Array.isArray(debug.settlementSamples) ? debug.settlementSamples.join(" | ") : "-";
-        setDebugInfo(
+  const loadFields = useCallback(
+    async (opts?: { force?: boolean }) => {
+      const loc = (zh: string, en: string) => (lang === "zh-CN" ? zh : en);
+      if (!effectiveCtx?.appToken) return;
+      const bTable = businessTableId.trim();
+      const sTable = settlementTableId.trim();
+      if (!bTable || !sTable) {
+        setMessage(
           loc(
-            `客户/供应商选项:${custCount}；销售/采购侧字段:${debug.businessFieldId ?? "-"}(${debug.businessOptionsCount ?? 0})；收款/付款侧字段:${debug.settlementFieldId ?? "-"}(${debug.settlementOptionsCount ?? 0})；销售/采购样本:${bs}；收款/付款样本:${ss}`,
-            `Customer/vendor options:${custCount}; Sales/purchase side:${debug.businessFieldId ?? "-"}(${debug.businessOptionsCount ?? 0}); Receipt/payment side:${debug.settlementFieldId ?? "-"}(${debug.settlementOptionsCount ?? 0}); Samples:${bs} / ${ss}`
+            "请先等待数据表列表加载完成，并选择销售/采购表与收款/付款表。",
+            "Wait for the table list, then select sales/purchase and receipt/payment tables."
           )
         );
-      } else {
+        return;
+      }
+      const appTok = effectiveCtx.appToken.trim();
+      const hydrateKey = sessionFieldsHydrateKey(appTok, mode, bTable, sTable);
+      const mappingStorageKey = fieldMappingStorageKey(appTok, mode, bTable, sTable);
+
+      if (opts?.force) {
+        fieldsHydratedForKeyRef.current = "";
+      }
+
+      const gen = ++fieldsLoadGen.current;
+      const stale = () => fieldsLoadGen.current !== gen;
+
+      setLoading(true);
+      setMessage("");
+      setFieldLoadSummary("");
+      setDebugInfo("");
+      setLoadingHint(loc("读取中…", "Loading fields..."));
+      try {
+        const b = await fetch(api(`/api/get-table-fields?tableId=${encodeURIComponent(bTable)}`), { headers });
+        if (stale()) return;
+        const bj = await b.json();
+        if (!b.ok || !bj.success)
+          throw new Error(bj.message || loc("读取销售/采购表字段失败", "Failed to load sales/purchase fields"));
+        if (stale()) return;
+        const s = await fetch(api(`/api/get-table-fields?tableId=${encodeURIComponent(sTable)}`), { headers });
+        if (stale()) return;
+        const sj = await s.json();
+        if (!s.ok || !sj.success)
+          throw new Error(sj.message || loc("读取收款/付款表字段失败", "Failed to load receipt/payment fields"));
+        if (stale()) return;
+        setBusinessFields(bj.fields ?? []);
+        setSettlementFields(sj.fields ?? []);
         setCustomerOptions([]);
-        setDebugInfo(`${loc("客户/供应商列表接口失败", "Customer/vendor list API failed")}: ${optionsJson.message ?? "unknown"}`);
+        setCustomerName("");
+        setLedgerHeaders([]);
+        setRemainingQuota(bj.quota?.remainingQuota ?? sj.quota?.remainingQuota ?? null);
+        const optionsResp = await fetch(api("/api/customer-options"), {
+          method: "POST",
+          headers: { "content-type": "application/json", ...headers },
+          body: JSON.stringify({
+            mode,
+            businessTable: { tableId: bTable },
+            settlementTable: { tableId: sTable },
+          }),
+        });
+        if (stale()) return;
+        const optionsJson = await optionsResp.json();
+        const bFields = (bj.fields ?? []) as FieldOption[];
+        const sFields = (sj.fields ?? []) as FieldOption[];
+        const bCount = bFields.length;
+        const sCount = sFields.length;
+        let custCount = 0;
+        if (optionsResp.ok && optionsJson.success) {
+          const opts = Array.isArray(optionsJson.options) ? (optionsJson.options as string[]) : [];
+          custCount = opts.length;
+          setCustomerOptions(opts);
+          const debug = optionsJson.debug || {};
+          const bs = Array.isArray(debug.businessSamples) ? debug.businessSamples.join(" | ") : "-";
+          const ss = Array.isArray(debug.settlementSamples) ? debug.settlementSamples.join(" | ") : "-";
+          setDebugInfo(
+            loc(
+              `客户/供应商选项:${custCount}；销售/采购侧字段:${debug.businessFieldId ?? "-"}(${debug.businessOptionsCount ?? 0})；收款/付款侧字段:${debug.settlementFieldId ?? "-"}(${debug.settlementOptionsCount ?? 0})；销售/采购样本:${bs}；收款/付款样本:${ss}`,
+              `Customer/vendor options:${custCount}; Sales/purchase side:${debug.businessFieldId ?? "-"}(${debug.businessOptionsCount ?? 0}); Receipt/payment side:${debug.settlementFieldId ?? "-"}(${debug.settlementOptionsCount ?? 0}); Samples:${bs} / ${ss}`
+            )
+          );
+        } else {
+          setCustomerOptions([]);
+          setDebugInfo(`${loc("客户/供应商列表接口失败", "Customer/vendor list API failed")}: ${optionsJson.message ?? "unknown"}`);
+        }
+        if (stale()) return;
+
+        const bIdSet = new Set(bFields.map((f) => f.id));
+        const sIdSet = new Set(sFields.map((f) => f.id));
+        const saved = loadFieldMappingFromStorage(mappingStorageKey);
+        if (saved) {
+          setBusinessCustomerField(pickMappedId(saved.businessCustomerField, bIdSet));
+          setBusinessAmountField(pickMappedId(saved.businessAmountField, bIdSet));
+          setBusinessDateField(pickMappedId(saved.businessDateField, bIdSet));
+          setSettlementCustomerField(pickMappedId(saved.settlementCustomerField, sIdSet));
+          setSettlementAmountField(pickMappedId(saved.settlementAmountField, sIdSet));
+          setSettlementDateField(pickMappedId(saved.settlementDateField, sIdSet));
+          setBusinessDisplayFields(filterDisplayIds(saved.businessDisplayFields, bIdSet));
+          setSettlementDisplayFields(filterDisplayIds(saved.settlementDisplayFields, sIdSet));
+        } else {
+          setBusinessCustomerField("");
+          setBusinessAmountField("");
+          setBusinessDateField("");
+          setSettlementCustomerField("");
+          setSettlementAmountField("");
+          setSettlementDateField("");
+          setBusinessDisplayFields([]);
+          setSettlementDisplayFields([]);
+        }
+
+        const summary = loc(
+          `已读取：销售/采购表字段 ${bCount} 个；收款/付款表字段 ${sCount} 个；客户/供应商名称 ${custCount} 条（请在「生成对账」上方下拉中选择）。`,
+          `Loaded: ${bCount} sales/purchase field(s); ${sCount} receipt/payment field(s); ${custCount} customer/vendor name(s) — select above Generate.`
+        );
+        setFieldLoadSummary(summary);
+        setMessage(loc("字段与客户/供应商列表读取完成。", "Fields and customer/vendor list loaded."));
+        fieldsHydratedForKeyRef.current = hydrateKey;
+      } catch (e) {
+        if (!stale()) {
+          setFieldLoadSummary("");
+          setMessage(e instanceof Error ? e.message : loc("读取失败", "Load failed"));
+        }
+      } finally {
+        if (!stale()) {
+          setLoadingHint("");
+          setLoading(false);
+        }
       }
-      if (stale()) return;
-      const summary = loc(
-        `已读取：销售/采购表字段 ${bCount} 个；收款/付款表字段 ${sCount} 个；客户/供应商名称 ${custCount} 条（已填入下方下拉）。`,
-        `Loaded: ${bCount} sales/purchase field(s); ${sCount} receipt/payment field(s); ${custCount} customer/vendor name(s) in the dropdown.`
-      );
-      setFieldLoadSummary(summary);
-      setMessage(loc("字段与客户/供应商列表读取完成。", "Fields and customer/vendor list loaded."));
-    } catch (e) {
-      if (!stale()) {
-        setFieldLoadSummary("");
-        setMessage(e instanceof Error ? e.message : loc("读取失败", "Load failed"));
-      }
-    } finally {
-      if (!stale()) {
-        setLoadingHint("");
-        setLoading(false);
-      }
-    }
-  }, [effectiveCtx, businessTableId, settlementTableId, headers, mode, lang]);
+    },
+    [effectiveCtx, businessTableId, settlementTableId, headers, mode, lang]
+  );
+
+  const persistDefaultFieldMapping = useCallback(() => {
+    if (!effectiveCtx?.appToken?.trim()) return;
+    if (!fieldLoadSummary.trim()) return;
+    const b = businessTableId.trim();
+    const s = settlementTableId.trim();
+    if (!b || !s) return;
+    const key = fieldMappingStorageKey(effectiveCtx.appToken.trim(), mode, b, s);
+    saveFieldMappingToStorage(key, {
+      businessCustomerField,
+      businessAmountField,
+      businessDateField,
+      businessDisplayFields,
+      settlementCustomerField,
+      settlementAmountField,
+      settlementDateField,
+      settlementDisplayFields,
+    });
+    const done = I18N[lang].saveMappingDefaultDone;
+    flashMappingPersistFeedback(done);
+    setMessage(done);
+  }, [
+    effectiveCtx?.appToken,
+    fieldLoadSummary,
+    businessTableId,
+    settlementTableId,
+    mode,
+    lang,
+    flashMappingPersistFeedback,
+    businessCustomerField,
+    businessAmountField,
+    businessDateField,
+    businessDisplayFields,
+    settlementCustomerField,
+    settlementAmountField,
+    settlementDateField,
+    settlementDisplayFields,
+  ]);
+
+  const clearPersistedFieldMapping = useCallback(() => {
+    if (!effectiveCtx?.appToken?.trim()) return;
+    const b = businessTableId.trim();
+    const s = settlementTableId.trim();
+    if (!b || !s) return;
+    const key = fieldMappingStorageKey(effectiveCtx.appToken.trim(), mode, b, s);
+    clearFieldMappingFromStorage(key);
+    const done = I18N[lang].clearMappingDefaultDone;
+    flashMappingPersistFeedback(done);
+    setMessage(done);
+  }, [effectiveCtx?.appToken, businessTableId, settlementTableId, mode, lang, flashMappingPersistFeedback]);
 
   useEffect(() => {
     if (viewTab !== "main") return;
-    if (!effectiveCtx?.appToken) return;
-    if (!businessTableId.trim() || !settlementTableId.trim()) return;
+    if (!sessionFieldsKey) return;
     if (tableOptionsLoading) return;
+    if (fieldsHydratedForKeyRef.current === sessionFieldsKey) return;
     const timer = window.setTimeout(() => {
       void loadFields();
     }, 400);
     return () => window.clearTimeout(timer);
-  }, [
-    viewTab,
-    effectiveCtx?.appToken,
-    businessTableId,
-    settlementTableId,
-    tableOptionsLoading,
-    loadFields,
-  ]);
+  }, [viewTab, sessionFieldsKey, tableOptionsLoading, loadFields]);
 
   async function generate() {
     if (!effectiveCtx) return;
@@ -1053,30 +1272,57 @@ export function App() {
             </button>
           </>
         ) : null}
-        <label>
-          {t.partyNameRequired}
-          {customerOptions.length > 0 ? (
-            <span className="muted" style={{ marginLeft: 6, fontWeight: 400 }}>
-              {tr(`已加载 ${customerOptions.length} 条`, `${customerOptions.length} loaded`)}
-            </span>
-          ) : null}
-        </label>
-        <select value={customerName} onChange={(e) => setCustomerName(e.target.value)}>
-          <option value="">{t.partySelectPlaceholder}</option>
-          {customerOptions.map((name) => (
-            <option key={name} value={name}>
-              {name}
-            </option>
-          ))}
-        </select>
 
         <div className="row">
           <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
           <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
         </div>
-        <button type="button" onClick={() => void loadFields()} disabled={loading || !effectiveCtx?.appToken}>
-          {t.reloadFields}
-        </button>
+        <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <button
+            type="button"
+            onClick={() => void loadFields({ force: true })}
+            disabled={loading || !effectiveCtx?.appToken}
+          >
+            {t.reloadFields}
+          </button>
+          <button
+            type="button"
+            onClick={() => persistDefaultFieldMapping()}
+            disabled={loading || !effectiveCtx?.appToken || !fieldLoadSummary.trim()}
+          >
+            {t.saveMappingDefault}
+          </button>
+          <button
+            type="button"
+            onClick={() => clearPersistedFieldMapping()}
+            disabled={
+              loading ||
+              !effectiveCtx?.appToken ||
+              !businessTableId.trim() ||
+              !settlementTableId.trim()
+            }
+          >
+            {t.clearMappingDefault}
+          </button>
+        </div>
+        {mappingPersistFeedback ? (
+          <p
+            role="status"
+            aria-live="polite"
+            style={{
+              marginTop: 8,
+              marginBottom: 0,
+              padding: "8px 10px",
+              borderRadius: 8,
+              fontWeight: 600,
+              background: "#ecfdf5",
+              color: "#065f46",
+              border: "1px solid #6ee7b7",
+            }}
+          >
+            ✓ {mappingPersistFeedback}
+          </p>
+        ) : null}
         {fieldLoadSummary ? <p className="muted" style={{ marginTop: 6 }}>{fieldLoadSummary}</p> : null}
       </div>
       ) : null}
@@ -1286,14 +1532,14 @@ export function App() {
             </div>
             <div className="muted">
               {tr(
-                "1. 进入「对账」页：会自动读取 Base appToken，并加载子表列表；请选择销售/采购表与收款/付款表后，系统会自动读取字段与客户列表（无需再点按钮）。更换子表后可点「重新读取字段」。",
-                "1. On Reconcile: appToken is auto-read; pick sales/purchase and receipt/payment tables — fields load automatically. Use Reload fields after changing tables."
+                "1. 进入「对账」页：会自动读取 Base appToken，并加载子表列表；请选择销售/采购表与收款/付款表后，系统会自动读取字段与客户列表（无需再点按钮）。在同一插件会话内切换到「设置」或「使用说明」再回到对账页不会重复读取；更换子表后请点「重新读取字段」。",
+                "1. On Reconcile: appToken is auto-read; pick tables — fields load once per session when you return from Settings/Guide without reloading. Use Reload fields after changing tables."
               )}
             </div>
             <div className="muted">
               {tr(
-                "2. 读取完成后会显示字段摘要；客户/供应商下拉会自动填充。若映射不准，展开「字段映射」手动指定。",
-                "2. After loading, adjust field mapping in the expandable section if needed."
+                "2. 读取完成后会显示字段摘要；客户/供应商选项已加载，请在「生成对账」上方下拉中选择。若映射不准，展开「字段映射」手动指定；保存/清除默认映射后，按钮下方会出现绿色提示约几秒。",
+                "2. After loading, pick customer/vendor in the dropdown above Generate. Adjust mapping in the expandable section; Save/Clear default mapping shows a short green confirmation under the buttons."
               )}
             </div>
             <div className="muted">
@@ -1311,8 +1557,8 @@ export function App() {
             <div className="muted">{tr("5. 备注字段如在两张表都勾选，会自动合并为对账单中的“备注”列。", "5. Remark fields from both tables are merged into a single Remark column.")}</div>
             <div className="muted">
               {tr(
-                "6. 选择客户和日期范围，再点击「生成对账」；生成后可导出 Excel / CSV，也可生成「月度对账单」版式预览图并导出 PNG。",
-                "6. Select customer and date range, click Generate; export Excel/CSV or render a monthly-statement-style PNG preview."
+                "6. 在页面顶部选择日期范围；字段映射设置好后，在「生成对账」按钮上方选择客户/供应商，再点击「生成对账」。生成后可导出 Excel / CSV，也可生成「月度对账单」版式预览图并导出 PNG。",
+                "6. Set the date range at the top; after field mapping, pick customer/vendor above Generate, then click Generate. Export Excel/CSV or a monthly-statement-style PNG preview."
               )}
             </div>
             <div className="muted">{tr("7. 如提示试用次数用完，请到“设置”页查看如何获取激活码。", "7. If trial quota is exhausted, go to Settings for activation instructions.")}</div>
@@ -1333,6 +1579,25 @@ export function App() {
           {loadStats.total}
         </p>
       ) : null}
+
+      <div className="grid" style={{ marginTop: 12 }}>
+        <label>
+          {t.partyNameRequired}
+          {customerOptions.length > 0 ? (
+            <span className="muted" style={{ marginLeft: 6, fontWeight: 400 }}>
+              {tr(`已加载 ${customerOptions.length} 条`, `${customerOptions.length} loaded`)}
+            </span>
+          ) : null}
+        </label>
+        <select value={customerName} onChange={(e) => setCustomerName(e.target.value)}>
+          <option value="">{t.partySelectPlaceholder}</option>
+          {customerOptions.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </div>
 
       <button
         className="success"
