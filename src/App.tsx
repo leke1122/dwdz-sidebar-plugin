@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PLUGIN_BUILD_VERSION } from "./version";
+import type { LedgerRow } from "./ledgerTypes";
+import { buildMonthlyStatementModel } from "./monthlyStatementModel";
+import { MonthlyStatementPicture, type StatementPictureLabels } from "./MonthlyStatementPicture";
 
 type ViewTab = "main" | "guide" | "settings";
 type FieldOption = { id: string; name: string; type: number };
@@ -9,7 +12,6 @@ type Row = { customerName: string; salesAmount: number; paymentAmount: number; d
 type PluginContext = { appToken: string; tableId: string; userOpenId: string };
 type Lang = "zh-CN" | "en-US";
 type LoadStats = { business: number; settlement: number; total: number };
-type LedgerRow = Record<string, string | number>;
 type QuotaLogItem = {
   action: "ACTIVATE" | "GENERATE_LEDGER" | "GENERATE_SUMMARY" | string;
   deltaQuota: number;
@@ -54,6 +56,13 @@ const I18N: Record<
     fieldMappingSummary: string;
     businessMappingTitle: string;
     settlementMappingTitle: string;
+    statementImageTitle: string;
+    genStatementImage: string;
+    exportStatementPng: string;
+    statementImageHint: string;
+    statementImageNoModel: string;
+    guideWikiIntro: string;
+    guideWikiLink: string;
   }
 > = {
   "zh-CN": {
@@ -86,6 +95,14 @@ const I18N: Record<
     fieldMappingSummary: "字段映射（销售/采购 ↔ 收款/付款；打开后已自动读取字段，可改子表后点「重新读取字段」）",
     businessMappingTitle: "销售/采购表映射",
     settlementMappingTitle: "收款/付款表映射",
+    statementImageTitle: "月度对账单图片",
+    genStatementImage: "生成预览图",
+    exportStatementPng: "导出 PNG",
+    statementImageHint: "根据当前明细生成与「月度对账单」版式相近的图片，可先预览再导出。",
+    statementImageNoModel: "需明细中含「销售/采购金额」与「收款/付款金额」列才能生成版式图片。",
+    guideWikiIntro:
+      "更完整的图文说明与常见问题见飞书知识库（用户帮助文档，非购买或收款链接）：",
+    guideWikiLink: "打开知识库文档",
   },
   "en-US": {
     title: "Zhixu Sales/AP & Purchase/AR Reconciliation Plugin",
@@ -119,8 +136,19 @@ const I18N: Record<
       "Field mapping (sales/purchase ↔ receipt/payment). Fields load automatically; use Reload fields after changing tables.",
     businessMappingTitle: "Sales/Purchase table mapping",
     settlementMappingTitle: "Receipt/Payment table mapping",
+    statementImageTitle: "Monthly statement image",
+    genStatementImage: "Render preview",
+    exportStatementPng: "Download PNG",
+    statementImageHint: "Builds a statement-style image from the current ledger; preview then export.",
+    statementImageNoModel: "Ledger must include sales/purchase and receipt/payment amount columns.",
+    guideWikiIntro:
+      "For a longer guide and FAQ, see the Feishu wiki (help documentation, not a purchase or payment link): ",
+    guideWikiLink: "Open wiki",
   },
 };
+
+const FEISHU_HELP_WIKI_URL =
+  "https://ewslxmccjjz.feishu.cn/wiki/V7tGwuboeitzxzk27gJcEGNKnkT?from=from_copylink";
 
 function api(path: string): string {
   return `${API_BASE}${path}`;
@@ -404,6 +432,9 @@ export function App() {
   const [ledger, setLedger] = useState<LedgerRow[]>([]);
   const [ledgerExportToken, setLedgerExportToken] = useState("");
   const [ledgerHeaders, setLedgerHeaders] = useState<string[]>([]);
+  const statementPicRef = useRef<HTMLDivElement>(null);
+  const [statementImageUrl, setStatementImageUrl] = useState("");
+  const [statementImageBusy, setStatementImageBusy] = useState(false);
   const [businessDisplayFields, setBusinessDisplayFields] = useState<string[]>([]);
   const [settlementDisplayFields, setSettlementDisplayFields] = useState<string[]>([]);
   const [loadingHint, setLoadingHint] = useState("");
@@ -433,6 +464,62 @@ export function App() {
   const tr = (zh: string, en: string) => (isZh ? zh : en);
   const partyShort = tr("客户/供应商", "Customer/Vendor");
   const t = I18N[lang];
+
+  const statementModel = useMemo(
+    () =>
+      buildMonthlyStatementModel(ledger, ledgerHeaders, customerName, startDate, endDate, fmtDate(new Date())),
+    [ledger, ledgerHeaders, customerName, startDate, endDate]
+  );
+
+  const statementPicLabels: StatementPictureLabels = useMemo(() => {
+    const zh = lang === "zh-CN";
+    return {
+      startDate: zh ? "开始日期" : "Start date",
+      endDate: zh ? "截止日期" : "End date",
+      statementNo: zh ? "对账单号" : "Statement No.",
+      reconcileDate: zh ? "对账日期" : "Reconciliation date",
+      lineDate: zh ? "日期" : "Date",
+      fundType: zh ? "款项类型" : "Entry type",
+      detail: zh ? "商品/规格/备注" : "Product / spec / remark",
+      qty: zh ? "数量" : "Qty",
+      doc: zh ? "单据" : "Document",
+      payable: zh ? "应支付" : "Payable",
+      paid: zh ? "已支付" : "Paid",
+      closingBalance: zh ? "结余" : "Balance",
+      subtotal: zh ? "小计" : "Subtotal",
+      closingBalanceTotal: zh ? "期末结余" : "Closing balance",
+    };
+  }, [lang]);
+
+  const captureStatementImage = useCallback(async () => {
+    if (!statementModel || !statementPicRef.current) {
+      setMessage(I18N[lang].statementImageNoModel);
+      return;
+    }
+    setStatementImageBusy(true);
+    setMessage("");
+    try {
+      const { default: html2canvas } = await import("html2canvas");
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+      const canvas = await html2canvas(statementPicRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+      });
+      setStatementImageUrl(canvas.toDataURL("image/png"));
+    } catch (e) {
+      setStatementImageUrl("");
+      setMessage(e instanceof Error ? e.message : lang === "zh-CN" ? "生成图片失败" : "Failed to render image");
+    } finally {
+      setStatementImageBusy(false);
+    }
+  }, [statementModel, lang]);
 
   const effectiveCtx = useMemo(() => {
     if (ctx) return ctx;
@@ -593,7 +680,9 @@ export function App() {
       if (viewTab !== "settings" || !effectiveCtx) return;
       try {
         const resp = await fetch(api("/api/quota-logs?limit=20"), { headers });
-        const json = await resp.json();
+        const ct = resp.headers.get("content-type") ?? "";
+        if (!ct.includes("application/json")) return;
+        const json = (await resp.json()) as { success?: boolean; list?: unknown };
         if (!resp.ok || !json.success) return;
         setQuotaLogs(Array.isArray(json.list) ? (json.list as QuotaLogItem[]) : []);
       } catch {
@@ -725,6 +814,7 @@ export function App() {
     if (!effectiveCtx) return;
     setLoading(true);
     setMessage("");
+    setStatementImageUrl("");
     setLoadingHint(tr("生成中…", "Generating..."));
     try {
       const idempotencyKey =
@@ -1188,6 +1278,12 @@ export function App() {
         <div className="grid" style={{ marginTop: 10 }}>
           <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 10 }}>
             <div style={{ fontWeight: 600, marginBottom: 6 }}>{tr("使用说明", "Usage Guide")}</div>
+            <div className="muted" style={{ marginBottom: 10 }}>
+              {t.guideWikiIntro}{" "}
+              <a href={FEISHU_HELP_WIKI_URL} target="_blank" rel="noreferrer">
+                {t.guideWikiLink}
+              </a>
+            </div>
             <div className="muted">
               {tr(
                 "1. 进入「对账」页：会自动读取 Base appToken，并加载子表列表；请选择销售/采购表与收款/付款表后，系统会自动读取字段与客户列表（无需再点按钮）。更换子表后可点「重新读取字段」。",
@@ -1213,7 +1309,12 @@ export function App() {
               )}
             </div>
             <div className="muted">{tr("5. 备注字段如在两张表都勾选，会自动合并为对账单中的“备注”列。", "5. Remark fields from both tables are merged into a single Remark column.")}</div>
-            <div className="muted">{tr("6. 选择客户和日期范围，再点击“生成对账”；生成完成后可导出 Excel / CSV。", "6. Select customer and date range, click Generate, then export Excel/CSV.")}</div>
+            <div className="muted">
+              {tr(
+                "6. 选择客户和日期范围，再点击「生成对账」；生成后可导出 Excel / CSV，也可生成「月度对账单」版式预览图并导出 PNG。",
+                "6. Select customer and date range, click Generate; export Excel/CSV or render a monthly-statement-style PNG preview."
+              )}
+            </div>
             <div className="muted">{tr("7. 如提示试用次数用完，请到“设置”页查看如何获取激活码。", "7. If trial quota is exhausted, go to Settings for activation instructions.")}</div>
           </div>
         </div>
@@ -1282,26 +1383,72 @@ export function App() {
       ) : null}
 
       {viewTab === "main" && ledger.length > 0 ? (
-        <div className="tableWrap">
-          <table>
-            <thead>
-              <tr>
-                {(ledgerHeaders.length ? ledgerHeaders : Object.keys(ledger[0] ?? {})).map((h) => (
-                  <th key={h}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {ledger.map((r, idx) => (
-                <tr key={`${String(r[isZh ? "日期" : "Date"] ?? "")}-${idx}`}>
-                  {(ledgerHeaders.length ? ledgerHeaders : Object.keys(r)).map((h) => (
-                    <td key={h}>{String(r[h] ?? "")}</td>
+        <>
+          <div className="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  {(ledgerHeaders.length ? ledgerHeaders : Object.keys(ledger[0] ?? {})).map((h) => (
+                    <th key={h}>{h}</th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {ledger.map((r, idx) => (
+                  <tr key={`${String(r[isZh ? "日期" : "Date"] ?? "")}-${idx}`}>
+                    {(ledgerHeaders.length ? ledgerHeaders : Object.keys(r)).map((h) => (
+                      <td key={h}>{String(r[h] ?? "")}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ marginTop: 14 }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>{t.statementImageTitle}</div>
+            <p className="muted" style={{ margin: "0 0 8px" }}>
+              {t.statementImageHint}
+            </p>
+            {ledger.length > 0 && !statementModel ? <p className="muted">{t.statementImageNoModel}</p> : null}
+            <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+              <button type="button" onClick={() => void captureStatementImage()} disabled={!statementModel || statementImageBusy}>
+                {statementImageBusy ? tr("生成中…", "Rendering…") : t.genStatementImage}
+              </button>
+              {statementImageUrl ? (
+                <a
+                  href={statementImageUrl}
+                  download={`${(statementModel?.title ?? "statement").replace(/\s+/g, "_")}-${(customerName || "export").replace(/[/\\?%*:|"<>]/g, "_")}.png`}
+                  style={{
+                    display: "inline-block",
+                    padding: "8px 10px",
+                    border: "1px solid #d1d5db",
+                    borderRadius: 8,
+                    textDecoration: "none",
+                    color: "#111827",
+                    background: "#fff",
+                  }}
+                >
+                  {t.exportStatementPng}
+                </a>
+              ) : null}
+            </div>
+            {statementImageUrl ? (
+              <img
+                src={statementImageUrl}
+                alt=""
+                style={{ maxWidth: "100%", marginTop: 10, border: "1px solid #e5e7eb", borderRadius: 8, display: "block" }}
+              />
+            ) : null}
+          </div>
+          {statementModel ? (
+            <div
+              style={{ position: "fixed", left: -9999, top: 0, width: 820, pointerEvents: "none", zIndex: -3 }}
+              aria-hidden
+            >
+              <MonthlyStatementPicture ref={statementPicRef} model={statementModel} labels={statementPicLabels} />
+            </div>
+          ) : null}
+        </>
       ) : null}
 
       <div className="muted" style={{ marginTop: 12 }}>
