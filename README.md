@@ -23,7 +23,11 @@ npm run verify:block-dist
 
 ## Vercel（网页托管）
 
-若将 **本仓库** 接入 Vercel，请在项目设置中将 **Root Directory** 设为 **`plugin-center/sidebar-plugin`**，以便读取该目录下的 `vercel.json` 并执行 `build:block`。本地 CLI 也请在同一子目录下运行 `npx vercel`。
+构建配置在 **仓库根目录** 的 **`vercel.json`**（安装与构建会进入 `plugin-center/sidebar-plugin` 执行 `build:block`，产物为 `plugin-center/sidebar-plugin/dist`）。
+
+**推荐**：Vercel 项目 **Settings → General → Root Directory 留空**（使用仓库根），与根目录 `vercel.json` 一致；推送 `main` 后自动部署 **`https://plugin.zxaigc.online`**。
+
+若将 Root Directory 设为 **`plugin-center/sidebar-plugin`**，则会使用该子目录内的 `vercel.json`（另一套等价配置），**勿与「根目录 + 再填子目录」叠加**，否则会路径重复导致构建失败。
 
 ## 参考示例仓库说明
 
