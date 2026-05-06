@@ -67,6 +67,8 @@ const I18N: Record<
     statementImageNoModel: string;
     guideWikiIntro: string;
     guideWikiLink: string;
+    guideUserFeedbackIntro: string;
+    userFeedbackLink: string;
   }
 > = {
   "zh-CN": {
@@ -113,6 +115,8 @@ const I18N: Record<
     guideWikiIntro:
       "更完整的图文说明与常见问题见飞书知识库（用户帮助文档，非购买或收款链接）：",
     guideWikiLink: "打开知识库文档",
+    guideUserFeedbackIntro: "问题反馈与交流（飞书群，非收款链接）：",
+    userFeedbackLink: "加入智序用户交流群",
   },
   "en-US": {
     title: "Zhixu Sales/AP & Purchase/AR Reconciliation Plugin",
@@ -159,11 +163,17 @@ const I18N: Record<
     guideWikiIntro:
       "For a longer guide and FAQ, see the Feishu wiki (help documentation, not a purchase or payment link): ",
     guideWikiLink: "Open wiki",
+    guideUserFeedbackIntro: "Feedback and discussion (Feishu group, not a payment link): ",
+    userFeedbackLink: "Join Zhixu user group",
   },
 };
 
 const FEISHU_HELP_WIKI_URL =
   "https://ewslxmccjjz.feishu.cn/wiki/V7tGwuboeitzxzk27gJcEGNKnkT?from=from_copylink";
+
+/** 智序用户交流群（上架自检：用户反馈入口） */
+const FEISHU_USER_FEEDBACK_GROUP_URL =
+  "https://applink.feishu.cn/client/chat/chatter/add_by_link?link_token=426mbe27-a0b4-4816-ad53-a1a2372dc796";
 
 function api(path: string): string {
   return `${API_BASE}${path}`;
@@ -1477,6 +1487,15 @@ export function App() {
             <p className="muted">{tr("激活码与剩余次数将绑定到此用户标识，不支持手动修改。", "Activation and quota are bound to this user ID and cannot be edited.")}</p>
           </div>
           {needActivation ? <p className="danger">{tr("试用次数已用完，请在设置页输入激活码继续使用。", "Trial quota exhausted, please activate in settings.")}</p> : null}
+          <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 10 }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>{tr("用户反馈与交流", "User feedback")}</div>
+            <p className="muted" style={{ margin: 0 }}>
+              {t.guideUserFeedbackIntro}{" "}
+              <a href={FEISHU_USER_FEEDBACK_GROUP_URL} target="_blank" rel="noreferrer">
+                {t.userFeedbackLink}
+              </a>
+            </p>
+          </div>
           <label>{tr("激活码", "Activation code")}</label>
           <input value={activationCode} onChange={(e) => setActivationCode(e.target.value)} placeholder={t.activationPlaceholder} />
           <button
@@ -1528,6 +1547,12 @@ export function App() {
               {t.guideWikiIntro}{" "}
               <a href={FEISHU_HELP_WIKI_URL} target="_blank" rel="noreferrer">
                 {t.guideWikiLink}
+              </a>
+            </div>
+            <div className="muted" style={{ marginBottom: 10 }}>
+              {t.guideUserFeedbackIntro}{" "}
+              <a href={FEISHU_USER_FEEDBACK_GROUP_URL} target="_blank" rel="noreferrer">
+                {t.userFeedbackLink}
               </a>
             </div>
             <div className="muted">
@@ -1723,6 +1748,10 @@ export function App() {
         /{" "}
         <a href={api("/legal/terms")} target="_blank" rel="noreferrer">
           {t.terms}
+        </a>
+        {" · "}
+        <a href={FEISHU_USER_FEEDBACK_GROUP_URL} target="_blank" rel="noreferrer">
+          {t.userFeedbackLink}
         </a>
         <span style={{ marginLeft: 8 }}>v{PLUGIN_BUILD_VERSION}</span>
       </div>

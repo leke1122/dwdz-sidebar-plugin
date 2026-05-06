@@ -31,12 +31,19 @@ npm run verify:block-dist
 - [ ] 插件内展示隐私政策与服务条款链接（指向后端 `GET /legal/privacy`、`GET /legal/terms`）。
 - [ ] 无违反提报口径的收款跳转或未授权数据采集说明（提报文案按开放平台要求自检）。
 
-## 5. Git 提交建议
+## 5. 用户反馈（帮助文档 / 上架常见要求）
+
+- [ ] 插件内提供 **飞书用户交流群** 入口（「使用说明」「设置」及页脚链接），用于问题反馈与使用交流。
+- [ ] 加群链接（与 `src/App.tsx` 中 `FEISHU_USER_FEEDBACK_GROUP_URL` 保持一致，须为长期有效邀请）：  
+  `https://applink.feishu.cn/client/chat/chatter/add_by_link?link_token=426mbe27-a0b4-4816-ad53-a1a2372dc796`  
+  若群链接失效，需同步更新源码常量并重新发版。
+
+## 6. Git 提交建议
 
 - [ ] **`dist/` 已随源码提交**（本目录 `.gitignore` 已不再忽略 `dist/`，便于审核方直接查看上架包结构）。
 - [ ] 未将 `node_modules/`、`.vercel` 或 `dist-web/` 误提交。
 
-## 6. 与参考模板仓库的差异说明
+## 7. 与参考模板仓库的差异说明
 
 若对照社区示例仓库（如 `feishu-bitable-reconcile` 类项目）：不同应用 `appId` / `blockTypeID` 以本仓库 `app.json`、`block.json` 为准；**结构要求上一致：静态入口在 `dist/index.html`，资源为相对引用。**
 

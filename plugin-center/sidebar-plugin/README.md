@@ -7,6 +7,12 @@
 - 不使用 history 路由（单页无路由）
 - 后端地址可配置：`VITE_API_BASE_URL`
 
+## 用户反馈（飞书群）
+
+上架自检要求提供用户反馈入口。插件内「使用说明」「设置」及页脚可打开 **智序用户交流群**（与 `src/App.tsx` 中 `FEISHU_USER_FEEDBACK_GROUP_URL` 一致）：
+
+`https://applink.feishu.cn/client/chat/chatter/add_by_link?link_token=426mbe27-a0b4-4816-ad53-a1a2372dc796`
+
 ## 本地运行
 
 在 **本目录**（`plugin-center/sidebar-plugin`）执行：
