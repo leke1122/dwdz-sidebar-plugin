@@ -35,7 +35,7 @@ npm run verify:block-dist
 
 - [ ] 插件内提供 **飞书用户交流群** 入口（「使用说明」「设置」及页脚链接），用于问题反馈与使用交流。
 - [ ] 加群链接（与 `src/App.tsx` 中 `FEISHU_USER_FEEDBACK_GROUP_URL` 保持一致，须为长期有效邀请）：  
-  `https://applink.feishu.cn/client/chat/chatter/add_by_link?link_token=426mbe27-a0b4-4816-ad53-a1a2372dc796`  
+  `https://applink.feishu.cn/client/chat/chatter/add_by_link?link_token=774oc993-d1bb-4eee-9d60-4d7d26853e78`  
   若群链接失效，需同步更新源码常量并重新发版。
 
 ## 6. Git 提交建议

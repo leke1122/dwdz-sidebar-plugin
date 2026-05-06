@@ -173,7 +173,7 @@ const FEISHU_HELP_WIKI_URL =
 
 /** 智序用户交流群（上架自检：用户反馈入口） */
 const FEISHU_USER_FEEDBACK_GROUP_URL =
-  "https://applink.feishu.cn/client/chat/chatter/add_by_link?link_token=426mbe27-a0b4-4816-ad53-a1a2372dc796";
+  "https://applink.feishu.cn/client/chat/chatter/add_by_link?link_token=774oc993-d1bb-4eee-9d60-4d7d26853e78";
 
 function api(path: string): string {
   return `${API_BASE}${path}`;
