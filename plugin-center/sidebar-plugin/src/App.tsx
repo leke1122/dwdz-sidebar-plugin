@@ -547,7 +547,7 @@ export function App() {
   const [viewTab, setViewTab] = useState<ViewTab>("main");
   const [lang, setLang] = useState<Lang>("zh-CN");
   const [ctx, setCtx] = useState<PluginContext | null>(null);
-  const mode = "sales_receipt" as const;
+  const [mode, setMode] = useState<ReconciliationMode>("sales_receipt");
   const [businessTableId, setBusinessTableId] = useState("");
   const [settlementTableId, setSettlementTableId] = useState("");
   const [tableOptions, setTableOptions] = useState<TableOption[]>([]);
