@@ -110,7 +110,7 @@ const I18N: Record<
     partyNameRequired: "客户/供应商名称（必选）",
     partySelectPlaceholder: "请选择客户/供应商",
     fieldMappingSummary:
-      "字段映射（销售/采购 ↔ 收款/付款；读取完成后可「保存映射为默认」或「清除默认映射」。同一插件会话内切换「设置/说明」回到对账页不会重复读取字段，换子表请点「重新读取字段」。",
+      "字段映射（销售/采购 ↔ 收款/付款）：「客户/供应商」两列为必选，用于按你定义的列名读取对方下拉列表（不做自动猜列）。其余列可选自动识别。可保存/清除默认映射；换子表请「重新读取字段」。",
     businessMappingTitle: "销售/采购表映射",
     settlementMappingTitle: "收款/付款表映射",
     statementImageTitle: "月度对账单图片",
@@ -127,7 +127,7 @@ const I18N: Record<
     modeSalesReceipt: "销售 — 收款",
     modePurchasePayment: "采购 — 付款",
     partyListEmptyHint:
-      "未读到对方名称列表：采购/付款场景请在上方选择「采购 — 付款」，或在字段映射中指定「客户/供应商」列后点「重新读取字段」。",
+      "未读到对方名称：请先在「字段映射」里为两张表各选一列作为对方名称（任意列名均可），无需服务端猜测；选好后会自动加载下拉列表。",
   },
   "en-US": {
     title: "Zhixu Sales/AP & Purchase/AR Reconciliation Plugin",
@@ -163,7 +163,7 @@ const I18N: Record<
     partyNameRequired: "Customer/Vendor name (required)",
     partySelectPlaceholder: "Select customer/vendor",
     fieldMappingSummary:
-      "Field mapping (sales/purchase ↔ receipt/payment). After fields load you can Save mapping as default or Clear saved default mapping. Switching tabs in the same session does not reload fields; use Reload fields after changing tables.",
+      "Field mapping: party columns on both tables are required — we read the dropdown from your chosen columns only (no auto guess). Other columns may use auto-detect. Save/Clear defaults; Reload fields after table changes.",
     businessMappingTitle: "Sales/Purchase table mapping",
     settlementMappingTitle: "Receipt/Payment table mapping",
     statementImageTitle: "Monthly statement image",
@@ -180,7 +180,7 @@ const I18N: Record<
     modeSalesReceipt: "Sales — Receipt",
     modePurchasePayment: "Purchase — Payment",
     partyListEmptyHint:
-      "No party names loaded: for purchase/payment choose Purchase — Payment above, or set the party column in field mapping and tap Reload fields.",
+      "No party names: pick one party-name column per table in Field mapping (any header); the list loads automatically — no server-side guessing.",
   },
 };
 
@@ -591,6 +591,8 @@ export function App() {
   const [fieldLoadSummary, setFieldLoadSummary] = useState("");
   /** 并发「读取字段」时丢弃过期结果 */
   const fieldsLoadGen = useRef(0);
+  /** 并发「对方名称列表」请求丢弃过期结果 */
+  const partyLoadGen = useRef(0);
   /** 本会话已成功加载字段的表组合，用于避免切换 Tab 后重复请求 */
   const fieldsHydratedForKeyRef = useRef("");
   const mappingPersistFeedbackTimerRef = useRef<ReturnType<typeof window.setTimeout> | undefined>(undefined);
@@ -914,8 +916,6 @@ export function App() {
         const bIdSet = new Set(bFields.map((f) => f.id));
         const sIdSet = new Set(sFields.map((f) => f.id));
         const saved = loadFieldMappingFromStorage(mappingStorageKey);
-        const bizPartyOpt = saved ? pickMappedId(saved.businessCustomerField, bIdSet) : "";
-        const setPartyOpt = saved ? pickMappedId(saved.settlementCustomerField, sIdSet) : "";
 
         setBusinessFields(bFields);
         setSettlementFields(sFields);
@@ -923,43 +923,7 @@ export function App() {
         setCustomerName("");
         setLedgerHeaders([]);
         setRemainingQuota(bj.quota?.remainingQuota ?? sj.quota?.remainingQuota ?? null);
-        const optionsResp = await fetch(api("/api/customer-options"), {
-          method: "POST",
-          headers: { "content-type": "application/json", ...headers },
-          body: JSON.stringify({
-            mode,
-            businessTable: {
-              tableId: bTable,
-              ...(bizPartyOpt ? { customerField: bizPartyOpt } : {}),
-            },
-            settlementTable: {
-              tableId: sTable,
-              ...(setPartyOpt ? { customerField: setPartyOpt } : {}),
-            },
-          }),
-        });
-        if (stale()) return;
-        const optionsJson = await optionsResp.json();
-        const bCount = bFields.length;
-        const sCount = sFields.length;
-        let custCount = 0;
-        if (optionsResp.ok && optionsJson.success) {
-          const opts = Array.isArray(optionsJson.options) ? (optionsJson.options as string[]) : [];
-          custCount = opts.length;
-          setCustomerOptions(opts);
-          const debug = optionsJson.debug || {};
-          const bs = Array.isArray(debug.businessSamples) ? debug.businessSamples.join(" | ") : "-";
-          const ss = Array.isArray(debug.settlementSamples) ? debug.settlementSamples.join(" | ") : "-";
-          setDebugInfo(
-            loc(
-              `客户/供应商选项:${custCount}；销售/采购侧字段:${debug.businessFieldId ?? "-"}(${debug.businessOptionsCount ?? 0})；收款/付款侧字段:${debug.settlementFieldId ?? "-"}(${debug.settlementOptionsCount ?? 0})；销售/采购样本:${bs}；收款/付款样本:${ss}`,
-              `Customer/vendor options:${custCount}; Sales/purchase side:${debug.businessFieldId ?? "-"}(${debug.businessOptionsCount ?? 0}); Receipt/payment side:${debug.settlementFieldId ?? "-"}(${debug.settlementOptionsCount ?? 0}); Samples:${bs} / ${ss}`
-            )
-          );
-        } else {
-          setCustomerOptions([]);
-          setDebugInfo(`${loc("客户/供应商列表接口失败", "Customer/vendor list API failed")}: ${optionsJson.message ?? "unknown"}`);
-        }
+        setDebugInfo("");
         if (stale()) return;
 
         if (saved) {
@@ -982,16 +946,19 @@ export function App() {
           setSettlementDisplayFields([]);
         }
 
-        const summary = loc(
-          `已读取：销售/采购表字段 ${bCount} 个；收款/付款表字段 ${sCount} 个；客户/供应商名称 ${custCount} 条（请在「生成对账」上方下拉中选择）。`,
-          `Loaded: ${bCount} sales/purchase field(s); ${sCount} receipt/payment field(s); ${custCount} customer/vendor name(s) — select above Generate.`
-        );
+        const bCount = bFields.length;
+        const sCount = sFields.length;
+        const summary =
+          loc(
+            `已读取：销售/采购表字段 ${bCount} 个；收款/付款表字段 ${sCount} 个。`,
+            `Loaded: ${bCount} sales/purchase field(s); ${sCount} receipt/payment field(s).`
+          ) +
+          loc(
+            " 请在「字段映射」中为两张表各指定一列「对方名称」（列名由你定义）；指定后将自动加载上方下拉列表，服务端不再猜列。",
+            " Map one party-name column per table (any header); the dropdown loads automatically — no guessed columns."
+          );
         setFieldLoadSummary(summary);
-        setMessage(
-          custCount > 0
-            ? loc("字段与客户/供应商列表读取完成。", "Fields and customer/vendor list loaded.")
-            : loc(I18N["zh-CN"].partyListEmptyHint, I18N["en-US"].partyListEmptyHint)
-        );
+        setMessage(loc("字段列表已读取。", "Field list loaded."));
         fieldsHydratedForKeyRef.current = hydrateKey;
       } catch (e) {
         if (!stale()) {
@@ -1007,6 +974,128 @@ export function App() {
     },
     [effectiveCtx, businessTableId, settlementTableId, headers, mode, lang]
   );
+
+  const fetchPartyOptionsForGen = useCallback(
+    async (expectedGen: number) => {
+      const loc = (zh: string, en: string) => (lang === "zh-CN" ? zh : en);
+      const stale = () => partyLoadGen.current !== expectedGen;
+      if (!effectiveCtx?.appToken) return;
+      const bTable = businessTableId.trim();
+      const sTable = settlementTableId.trim();
+      const biz = businessCustomerField.trim();
+      const set = settlementCustomerField.trim();
+      const bCount = businessFields.length;
+      const sCount = settlementFields.length;
+      const base = loc(
+        `已读取：销售/采购表字段 ${bCount} 个；收款/付款表字段 ${sCount} 个。`,
+        `Loaded: ${bCount} sales/purchase field(s); ${sCount} receipt/payment field(s).`
+      );
+      const hint =
+        loc(
+          " 请在「字段映射」中为两张表各指定一列「对方名称」后将自动加载下拉列表（列名可自定义）。",
+          " Pick one party-name column per table (any header) to load the dropdown."
+        );
+
+      if (!bTable || !sTable || bCount === 0 || sCount === 0) return;
+
+      if (!biz || !set) {
+        if (!stale()) {
+          setCustomerOptions([]);
+          setCustomerName("");
+          setDebugInfo("");
+          setFieldLoadSummary(base + hint);
+        }
+        return;
+      }
+
+      setLoadingHint(loc("加载对方名称列表…", "Loading party names..."));
+      try {
+        const optionsResp = await fetch(api("/api/customer-options"), {
+          method: "POST",
+          headers: { "content-type": "application/json", ...headers },
+          body: JSON.stringify({
+            mode,
+            businessTable: { tableId: bTable, customerField: biz },
+            settlementTable: { tableId: sTable, customerField: set },
+          }),
+        });
+        if (stale()) return;
+        const optionsJson = (await optionsResp.json()) as {
+          success?: boolean;
+          options?: unknown;
+          message?: string;
+          debug?: Record<string, unknown>;
+        };
+        if (optionsResp.ok && optionsJson.success) {
+          const opts = Array.isArray(optionsJson.options) ? (optionsJson.options as string[]) : [];
+          const custCount = opts.length;
+          if (stale()) return;
+          setCustomerOptions(opts);
+          const debug = optionsJson.debug || {};
+          const bs = Array.isArray(debug.businessSamples) ? debug.businessSamples.join(" | ") : "-";
+          const ss = Array.isArray(debug.settlementSamples) ? debug.settlementSamples.join(" | ") : "-";
+          setDebugInfo(
+            loc(
+              `对方名称选项:${custCount}；业务表字段:${debug.businessFieldId ?? "-"}(${debug.businessOptionsCount ?? 0})；结算表字段:${debug.settlementFieldId ?? "-"}(${debug.settlementOptionsCount ?? 0})；业务样本:${bs}；结算样本:${ss}`,
+              `Party options:${custCount}; Business:${debug.businessFieldId ?? "-"}(${debug.businessOptionsCount ?? 0}); Settlement:${debug.settlementFieldId ?? "-"}(${debug.settlementOptionsCount ?? 0}); Samples:${bs} / ${ss}`
+            )
+          );
+          setFieldLoadSummary(
+            base +
+              loc(
+                ` 对方名称 ${custCount} 条已加载；请在「生成对账」上方下拉中选择。`,
+                ` ${custCount} party name(s) — select above Generate.`
+              )
+          );
+          setMessage(
+            custCount > 0
+              ? loc("对方名称列表已加载。", "Party list loaded.")
+              : loc(
+                  "未从所选列解析到对方名称，请确认列中有文本数据。",
+                  "No party names found — check that cells contain text."
+                )
+          );
+        } else {
+          if (stale()) return;
+          setCustomerOptions([]);
+          setDebugInfo(`${loc("对方名称列表失败", "Party list failed")}: ${optionsJson.message ?? optionsResp.status}`);
+          setMessage(optionsJson.message ?? loc("加载对方列表失败", "Failed to load party list"));
+          setFieldLoadSummary(base + hint);
+        }
+      } catch (e) {
+        if (!stale()) {
+          setCustomerOptions([]);
+          setDebugInfo(e instanceof Error ? e.message : "error");
+          setMessage(loc("加载对方列表失败", "Failed to load party list"));
+          setFieldLoadSummary(base + hint);
+        }
+      } finally {
+        if (!stale()) setLoadingHint("");
+      }
+    },
+    [
+      effectiveCtx,
+      businessTableId,
+      settlementTableId,
+      businessCustomerField,
+      settlementCustomerField,
+      businessFields,
+      settlementFields,
+      headers,
+      mode,
+      lang,
+    ]
+  );
+
+  useEffect(() => {
+    if (viewTab !== "main") return;
+    if (!effectiveCtx?.appToken?.trim()) return;
+    const gen = ++partyLoadGen.current;
+    const timer = window.setTimeout(() => {
+      void fetchPartyOptionsForGen(gen);
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [viewTab, effectiveCtx?.appToken, fetchPartyOptionsForGen]);
 
   const persistDefaultFieldMapping = useCallback(() => {
     if (!effectiveCtx?.appToken?.trim()) return;
@@ -1081,6 +1170,14 @@ export function App() {
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
       setLastIdempotencyKey(idempotencyKey);
+      if (!businessCustomerField.trim() || !settlementCustomerField.trim()) {
+        throw new Error(
+          tr(
+            "请先在「字段映射」中为两张表各选择对方名称列，再生成对账。",
+            "Pick party-name columns on both tables in Field mapping before generating."
+          )
+        );
+      }
       if (!customerName)
         throw new Error(tr(`请选择${partyShort}名称后再生成对账单`, `Please select ${partyShort} before generating`));
       const resp = await fetch(api("/api/generate-ledger"), {
@@ -1384,7 +1481,7 @@ export function App() {
           <div className="grid">
             <label>{tr("销售/采购表 — 客户/供应商字段", "Sales/Purchase — customer/vendor field")}</label>
             <select value={businessCustomerField} onChange={(e) => setBusinessCustomerField(e.target.value)}>
-              <option value="">{tr("自动识别", "Auto detect")}</option>
+              <option value="">{tr("必选：请选择对方名称列", "Required: party column")}</option>
               {businessFields.map((f) => (
                 <option key={`bc-${f.id}`} value={f.id}>
                   {f.name}
@@ -1444,7 +1541,7 @@ export function App() {
           <div className="grid">
             <label>{tr("收款/付款表 — 客户/供应商字段", "Receipt/Payment — customer/vendor field")}</label>
             <select value={settlementCustomerField} onChange={(e) => setSettlementCustomerField(e.target.value)}>
-              <option value="">{tr("自动识别", "Auto detect")}</option>
+              <option value="">{tr("必选：请选择对方名称列", "Required: party column")}</option>
               {settlementFields.map((f) => (
                 <option key={`sc-${f.id}`} value={f.id}>
                   {f.name}
