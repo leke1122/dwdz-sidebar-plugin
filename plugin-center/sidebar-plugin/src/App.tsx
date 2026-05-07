@@ -11,6 +11,8 @@ type Row = { customerName: string; salesAmount: number; paymentAmount: number; d
 
 type PluginContext = { appToken: string; tableId: string; userOpenId: string };
 type Lang = "zh-CN" | "en-US";
+/** 与 dwdz-api `ReconciliationMode` 一致 */
+type ReconciliationMode = "sales_receipt" | "purchase_payment";
 type LoadStats = { business: number; settlement: number; total: number };
 type QuotaLogItem = {
   action: "ACTIVATE" | "GENERATE_LEDGER" | "GENERATE_SUMMARY" | string;
@@ -69,6 +71,10 @@ const I18N: Record<
     guideWikiLink: string;
     guideUserFeedbackIntro: string;
     userFeedbackLink: string;
+    reconcileMode: string;
+    modeSalesReceipt: string;
+    modePurchasePayment: string;
+    partyListEmptyHint: string;
   }
 > = {
   "zh-CN": {
@@ -117,6 +123,11 @@ const I18N: Record<
     guideWikiLink: "打开知识库文档",
     guideUserFeedbackIntro: "问题反馈与交流（飞书群，非收款链接）：",
     userFeedbackLink: "加入智序用户交流群",
+    reconcileMode: "对账模式",
+    modeSalesReceipt: "销售 — 收款",
+    modePurchasePayment: "采购 — 付款",
+    partyListEmptyHint:
+      "未读到对方名称列表：采购/付款场景请在上方选择「采购 — 付款」，或在字段映射中指定「客户/供应商」列后点「重新读取字段」。",
   },
   "en-US": {
     title: "Zhixu Sales/AP & Purchase/AR Reconciliation Plugin",
@@ -165,6 +176,11 @@ const I18N: Record<
     guideWikiLink: "Open wiki",
     guideUserFeedbackIntro: "Feedback and discussion (Feishu group, not a payment link): ",
     userFeedbackLink: "Join Zhixu user group",
+    reconcileMode: "Reconciliation mode",
+    modeSalesReceipt: "Sales — Receipt",
+    modePurchasePayment: "Purchase — Payment",
+    partyListEmptyHint:
+      "No party names loaded: for purchase/payment choose Purchase — Payment above, or set the party column in field mapping and tap Reload fields.",
   },
 };
 
@@ -584,7 +600,8 @@ export function App() {
   const needActivation = remainingQuota !== null && remainingQuota <= 0;
   const isZh = lang === "zh-CN";
   const tr = (zh: string, en: string) => (isZh ? zh : en);
-  const partyShort = tr("客户/供应商", "Customer/Vendor");
+  const partyShort =
+    mode === "purchase_payment" ? tr("供应商", "Vendor") : tr("客户", "Customer");
   const t = I18N[lang];
 
   const flashMappingPersistFeedback = useCallback((text: string) => {
@@ -892,8 +909,16 @@ export function App() {
         if (!s.ok || !sj.success)
           throw new Error(sj.message || loc("读取收款/付款表字段失败", "Failed to load receipt/payment fields"));
         if (stale()) return;
-        setBusinessFields(bj.fields ?? []);
-        setSettlementFields(sj.fields ?? []);
+        const bFields = (bj.fields ?? []) as FieldOption[];
+        const sFields = (sj.fields ?? []) as FieldOption[];
+        const bIdSet = new Set(bFields.map((f) => f.id));
+        const sIdSet = new Set(sFields.map((f) => f.id));
+        const saved = loadFieldMappingFromStorage(mappingStorageKey);
+        const bizPartyOpt = saved ? pickMappedId(saved.businessCustomerField, bIdSet) : "";
+        const setPartyOpt = saved ? pickMappedId(saved.settlementCustomerField, sIdSet) : "";
+
+        setBusinessFields(bFields);
+        setSettlementFields(sFields);
         setCustomerOptions([]);
         setCustomerName("");
         setLedgerHeaders([]);
@@ -903,14 +928,18 @@ export function App() {
           headers: { "content-type": "application/json", ...headers },
           body: JSON.stringify({
             mode,
-            businessTable: { tableId: bTable },
-            settlementTable: { tableId: sTable },
+            businessTable: {
+              tableId: bTable,
+              ...(bizPartyOpt ? { customerField: bizPartyOpt } : {}),
+            },
+            settlementTable: {
+              tableId: sTable,
+              ...(setPartyOpt ? { customerField: setPartyOpt } : {}),
+            },
           }),
         });
         if (stale()) return;
         const optionsJson = await optionsResp.json();
-        const bFields = (bj.fields ?? []) as FieldOption[];
-        const sFields = (sj.fields ?? []) as FieldOption[];
         const bCount = bFields.length;
         const sCount = sFields.length;
         let custCount = 0;
@@ -933,9 +962,6 @@ export function App() {
         }
         if (stale()) return;
 
-        const bIdSet = new Set(bFields.map((f) => f.id));
-        const sIdSet = new Set(sFields.map((f) => f.id));
-        const saved = loadFieldMappingFromStorage(mappingStorageKey);
         if (saved) {
           setBusinessCustomerField(pickMappedId(saved.businessCustomerField, bIdSet));
           setBusinessAmountField(pickMappedId(saved.businessAmountField, bIdSet));
@@ -961,7 +987,11 @@ export function App() {
           `Loaded: ${bCount} sales/purchase field(s); ${sCount} receipt/payment field(s); ${custCount} customer/vendor name(s) — select above Generate.`
         );
         setFieldLoadSummary(summary);
-        setMessage(loc("字段与客户/供应商列表读取完成。", "Fields and customer/vendor list loaded."));
+        setMessage(
+          custCount > 0
+            ? loc("字段与客户/供应商列表读取完成。", "Fields and customer/vendor list loaded.")
+            : loc(I18N["zh-CN"].partyListEmptyHint, I18N["en-US"].partyListEmptyHint)
+        );
         fieldsHydratedForKeyRef.current = hydrateKey;
       } catch (e) {
         if (!stale()) {
@@ -1200,6 +1230,15 @@ export function App() {
 
       {viewTab === "main" ? (
       <div className="grid">
+        <label>{t.reconcileMode}</label>
+        <select
+          value={mode}
+          onChange={(e) => setMode(e.target.value as ReconciliationMode)}
+          disabled={loading || tableOptionsLoading}
+        >
+          <option value="sales_receipt">{t.modeSalesReceipt}</option>
+          <option value="purchase_payment">{t.modePurchasePayment}</option>
+        </select>
         <label>{t.businessTableAuto}</label>
         {effectiveCtx?.appToken && effectiveCtx?.userOpenId ? (
           <select
@@ -1557,8 +1596,8 @@ export function App() {
             </div>
             <div className="muted">
               {tr(
-                "1. 进入「对账」页：会自动读取 Base appToken，并加载子表列表；请选择销售/采购表与收款/付款表后，系统会自动读取字段与客户列表（无需再点按钮）。在同一插件会话内切换到「设置」或「使用说明」再回到对账页不会重复读取；更换子表后请点「重新读取字段」。",
-                "1. On Reconcile: appToken is auto-read; pick tables — fields load once per session when you return from Settings/Guide without reloading. Use Reload fields after changing tables."
+                "1. 进入「对账」页：先选对账模式（「销售—收款」或「采购—付款」）；会自动读取 Base appToken 与子表列表，再选择采购/销售表与付款/收款表，系统将读取字段与对方名称下拉选项。采购场景务必选「采购—付款」，否则会读不到供应商列表。换子表或模式后请点「重新读取字段」。",
+                "1. On Reconcile: choose mode (Sales–Receipt or Purchase–Payment) first, then pick tables. Purchase/payment scenarios must use Purchase–Payment or vendor names won’t load. Use Reload fields after changing tables or mode."
               )}
             </div>
             <div className="muted">
