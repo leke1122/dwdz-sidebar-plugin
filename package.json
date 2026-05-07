@@ -1,0 +1,12 @@
+{
+  "name": "dwdz-sidebar-plugin",
+  "version": "0.0.108",
+  "private": true,
+  "description": "Feishu Bitable 边栏对账插件。实现代码与依赖在 plugin-center/sidebar-plugin/；根目录 package.json 供飞书/Git 克隆工具在仓库根读取（避免「缺失 package.json」部署失败）。",
+  "scripts": {
+    "build": "npm install --prefix plugin-center/sidebar-plugin && npm run build:block --prefix plugin-center/sidebar-plugin && npm run verify:block-dist --prefix plugin-center/sidebar-plugin",
+    "build:block": "npm run build:block --prefix plugin-center/sidebar-plugin",
+    "verify:block-dist": "npm run verify:block-dist --prefix plugin-center/sidebar-plugin",
+    "dev": "npm run dev --prefix plugin-center/sidebar-plugin"
+  }
+}

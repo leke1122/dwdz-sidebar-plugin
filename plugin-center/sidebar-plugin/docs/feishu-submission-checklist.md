@@ -5,6 +5,7 @@
 ## 1. 仓库目录（插件中心口径）
 
 - [ ] 上架源码位于 **`plugin-center/sidebar-plugin/`**（本仓库约定路径）。
+- [ ] **仓库根目录存在可解析的 `package.json`**（飞书等自动部署在克隆后读取根路径 `package.json`；根目录 `npm run build` 会代理到子目录构建）。
 - [ ] 静态构建产物位于 **`plugin-center/sidebar-plugin/dist/`**，且 **入口文件为 `dist/index.html`**（与 `app.js`、`app.css` 同级，相对路径 `./app.js`、`./app.css`）。
 - [ ] 仓库根 [`README.md`](../../../README.md) 已说明上述路径，便于审核人员导航。
 

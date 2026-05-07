@@ -2,6 +2,8 @@
 
 面向飞书插件中心提报的 **多维表边栏插件（offlineWeb）** 仓库。业务功能：销售/收款、采购/付款场景下的字段读取、明细对账、Excel/CSV 导出与对账单版式图。
 
+**仓库根目录 `package.json`**：部分自动部署/审核流水线只克隆仓库并在根路径读取 `package.json`。根目录已提供有效 `package.json`，`npm run build` 会进入 `plugin-center/sidebar-plugin` 安装依赖并执行 `build:block`；上架静态包仍在 **`plugin-center/sidebar-plugin/dist/`**。
+
 ## 飞书提报要求的目录结构
 
 | 路径 | 说明 |
