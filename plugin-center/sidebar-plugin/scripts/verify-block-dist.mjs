@@ -12,7 +12,9 @@ const requiredFiles = [
 ];
 
 async function main() {
-  const distDir = resolve("dist");
+  const distDir = process.env.BLOCK_DIST_DIR
+    ? resolve(process.env.BLOCK_DIST_DIR)
+    : resolve("dist");
   const missing = [];
 
   for (const file of requiredFiles) {
@@ -29,7 +31,9 @@ async function main() {
     for (const file of missing) {
       console.error(`- ${file}`);
     }
-    console.error("Run `npm run build:block` and upload from `./dist` only.");
+    console.error(
+      "Run `npm run build:block` (or repo-root `npm run build`) and upload from `./dist` only.",
+    );
     process.exit(1);
   }
 

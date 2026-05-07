@@ -1,6 +1,9 @@
 import { build } from "esbuild";
 import { copyFile, mkdir, readdir, rm, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 import { readPluginVersion } from "./plugin-version.mjs";
 
 const outDir = resolve("dist");
@@ -54,4 +57,14 @@ for (const file of manifestFiles) {
   } catch {
     // Ignore optional files that are not present.
   }
+}
+
+const repoRootSyncScript = resolve(__dirname, "../../../scripts/sync-root-dist.mjs");
+try {
+  await import(pathToFileURL(repoRootSyncScript).href);
+} catch (e) {
+  const msg = e instanceof Error ? e.message : String(e);
+  console.warn(
+    `[build:block] Optional sync to repo-root dist/ skipped (${msg}). Full clone of dwdz-sidebar-plugin should include scripts/sync-root-dist.mjs.`,
+  );
 }

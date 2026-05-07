@@ -81,7 +81,8 @@ out
 # Nuxt.js build / generate output
 .nuxt
 
-# 上架静态包：`npm run build:block` 写入 ./dist（须含 index.html），建议纳入 Git 供审核。
+# 上架包由 `build:block` 写入本目录 ./dist，再同步到仓库根 ../../dist/ 供飞书审核；本路径 dist 不提交 Git。
+dist
 # 本地 `vite build` 写入 ./dist-web，勿与上架 dist 混淆。
 dist-web
 

@@ -1,12 +1,15 @@
 {
   "name": "dwdz-sidebar-plugin",
-  "version": "0.0.108",
+  "version": "0.0.109",
   "private": true,
-  "description": "Feishu Bitable 边栏对账插件。实现代码与依赖在 plugin-center/sidebar-plugin/；根目录 package.json 供飞书/Git 克隆工具在仓库根读取（避免「缺失 package.json」部署失败）。",
+  "output": "dist",
+  "description": "Feishu Bitable 边栏对账插件。源码在 plugin-center/sidebar-plugin/；根目录满足飞书审核：package.json 含 output=dist，构建后静态包在仓库根 dist/。",
   "scripts": {
-    "build": "npm install --prefix plugin-center/sidebar-plugin && npm run build:block --prefix plugin-center/sidebar-plugin && npm run verify:block-dist --prefix plugin-center/sidebar-plugin",
-    "build:block": "npm run build:block --prefix plugin-center/sidebar-plugin",
-    "verify:block-dist": "npm run verify:block-dist --prefix plugin-center/sidebar-plugin",
+    "build": "npm install --prefix plugin-center/sidebar-plugin && npm run build:block --prefix plugin-center/sidebar-plugin && npm run verify:block-dist --prefix plugin-center/sidebar-plugin && node scripts/verify-root-block-dist.mjs",
+    "build:block": "npm run build:block --prefix plugin-center/sidebar-plugin && npm run verify:block-dist --prefix plugin-center/sidebar-plugin && node scripts/verify-root-block-dist.mjs",
+    "verify:block-dist": "npm run verify:block-dist --prefix plugin-center/sidebar-plugin && node scripts/verify-root-block-dist.mjs",
+    "verify:root-dist": "node scripts/verify-root-block-dist.mjs",
+    "release:upload:block": "node scripts/opdev-upload-root.mjs",
     "dev": "npm run dev --prefix plugin-center/sidebar-plugin"
   }
 }

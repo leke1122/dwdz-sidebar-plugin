@@ -5,13 +5,20 @@
 ## 1. 仓库目录（插件中心口径）
 
 - [ ] 上架源码位于 **`plugin-center/sidebar-plugin/`**（本仓库约定路径）。
-- [ ] **仓库根目录存在可解析的 `package.json`**（飞书等自动部署在克隆后读取根路径 `package.json`；根目录 `npm run build` 会代理到子目录构建）。
-- [ ] 静态构建产物位于 **`plugin-center/sidebar-plugin/dist/`**，且 **入口文件为 `dist/index.html`**（与 `app.js`、`app.css` 同级，相对路径 `./app.js`、`./app.css`）。
+- [ ] **仓库根目录 `package.json`** 可解析，且含 **`"output": "dist"`**（与飞书《代码规范》一致）。
+- [ ] **仓库根目录 `dist/`** 已提交或可在审核环境由 `npm run build` 生成；**入口为根目录 `dist/index.html`**（与 `app.js`、`app.css` 同级，相对路径 `./app.js`、`./app.css`）。子目录 `plugin-center/sidebar-plugin/dist` 为构建中间输出，**不提交 Git**（由 `.gitignore` 排除）。
 - [ ] 仓库根 [`README.md`](../../../README.md) 已说明上述路径，便于审核人员导航。
 
 ## 2. 构建与校验命令
 
-在 `plugin-center/sidebar-plugin` 下执行：
+在**仓库根**执行（推荐，与飞书审核一致）：
+
+```bash
+npm install
+npm run build
+```
+
+或在 `plugin-center/sidebar-plugin` 下仅本地打包（成功后会尝试同步到根 `dist/`）：
 
 ```bash
 npm ci
@@ -19,8 +26,8 @@ npm run build:block
 npm run verify:block-dist
 ```
 
-- [ ] `verify:block-dist` 通过（校验 `dist/index.html`、`app.js`、`app.css`、`index.json`、`block.json`、`app.json`、`project.config.json` 存在）。
-- [ ] `dist/` 内清单与根目录一致：`block.json`、`index.json`、`app.json`、`project.config.json`（由 `build:block` 复制）。
+- [ ] 子目录与根目录校验均通过：根目录 `npm run build` 含 `verify:block-dist`（子目录）与 `verify:root-dist`（根 `dist/`）。
+- [ ] `dist/` 内清单齐全：`block.json`、`index.json`、`app.json`、`project.config.json`（由 `build:block` 复制到子目录再同步到根）。
 
 ## 3. 版本号一致
 

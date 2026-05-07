@@ -31,10 +31,16 @@ npm run dev
 
 ## 打包提报
 
+**推荐（仓库根目录 Clone 完整仓库时）**：在 **`dwdz-sidebar-plugin` 仓库根**执行 `npm run release:upload:block`，会对 **根目录 `./dist`** 执行 `opdev upload`，与飞书审核路径一致。
+
+在本目录仍可：
+
 ```bash
-# 推荐：构建 + 校验 + 上传（-v 自动等于 PLUGIN_BUILD_VERSION，避免版本漂移）
+# 构建 + 校验 + 上传（上传对象为当前目录 ./dist）
 npm run release:upload:block
 ```
+
+每次 `build:block` 成功后会尝试把本目录 `dist/` **同步到仓库根 `dist/`**（用于 Git 提交与审核）。
 
 手动分步（不推荐，易与源码版本号不一致）：
 
@@ -44,7 +50,7 @@ npm run verify:block-dist
 opdev upload ./dist -t block -p pc -v <必须与 src/version.ts 一致> -d "<description>"
 ```
 
-注意：`index.html` 必须位于 `dist` 根目录（与 `app.js`/`app.css` 同级），否则飞书记录视图容器无法加载。
+注意：飞书容器加载的包要求 **`dist/index.html`** 位于上传目录根（与 `app.js`/`app.css` 同级）；仓库审核侧以 **仓库根 `dist/`** 为准。
 
 ## 发布后自检
 

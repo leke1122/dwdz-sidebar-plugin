@@ -2,8 +2,8 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "installCommand": "npm install --prefix plugin-center/sidebar-plugin",
-  "buildCommand": "npm run build:block --prefix plugin-center/sidebar-plugin && npm run verify:block-dist --prefix plugin-center/sidebar-plugin",
-  "outputDirectory": "plugin-center/sidebar-plugin/dist",
+  "buildCommand": "npm run build:block --prefix plugin-center/sidebar-plugin && npm run verify:block-dist --prefix plugin-center/sidebar-plugin && node scripts/verify-root-block-dist.mjs",
+  "outputDirectory": "dist",
   "headers": [
     {
       "source": "/",
