@@ -1034,10 +1034,16 @@ export function App() {
           const debug = optionsJson.debug || {};
           const bs = Array.isArray(debug.businessSamples) ? debug.businessSamples.join(" | ") : "-";
           const ss = Array.isArray(debug.settlementSamples) ? debug.settlementSamples.join(" | ") : "-";
+          const bk = Array.isArray(debug.businessFieldKeys)
+            ? (debug.businessFieldKeys as string[]).join(",")
+            : String(debug.businessFieldId ?? "-");
+          const sk = Array.isArray(debug.settlementFieldKeys)
+            ? (debug.settlementFieldKeys as string[]).join(",")
+            : String(debug.settlementFieldId ?? "-");
           setDebugInfo(
             loc(
-              `对方名称选项:${custCount}；业务表字段:${debug.businessFieldId ?? "-"}(${debug.businessOptionsCount ?? 0})；结算表字段:${debug.settlementFieldId ?? "-"}(${debug.settlementOptionsCount ?? 0})；业务样本:${bs}；结算样本:${ss}`,
-              `Party options:${custCount}; Business:${debug.businessFieldId ?? "-"}(${debug.businessOptionsCount ?? 0}); Settlement:${debug.settlementFieldId ?? "-"}(${debug.settlementOptionsCount ?? 0}); Samples:${bs} / ${ss}`
+              `对方名称选项:${custCount}；字段键:${bk} / ${sk}；样本:${bs} | ${ss}`,
+              `Party options:${custCount}; field keys:${bk} / ${sk}; samples:${bs} | ${ss}`
             )
           );
           setFieldLoadSummary(
