@@ -1,6 +1,6 @@
 {
   "name": "dwdz-sidebar-plugin",
-  "version": "0.0.113",
+  "version": "0.0.114",
   "private": true,
   "output": "dist",
   "description": "Feishu Bitable 边栏对账插件。源码在 plugin-center/sidebar-plugin/；根目录满足飞书审核：package.json 含 output=dist，构建后静态包在仓库根 dist/。",

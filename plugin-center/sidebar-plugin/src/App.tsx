@@ -627,12 +627,16 @@ export function App() {
 
   const statementModel = useMemo(
     () =>
-      buildMonthlyStatementModel(ledger, ledgerHeaders, customerName, startDate, endDate, fmtDate(new Date())),
-    [ledger, ledgerHeaders, customerName, startDate, endDate]
+      buildMonthlyStatementModel(ledger, ledgerHeaders, customerName, startDate, endDate, fmtDate(new Date()), {
+        mode,
+        lang,
+      }),
+    [ledger, ledgerHeaders, customerName, startDate, endDate, mode, lang]
   );
 
   const statementPicLabels: StatementPictureLabels = useMemo(() => {
     const zh = lang === "zh-CN";
+    const purchase = mode === "purchase_payment";
     return {
       startDate: zh ? "开始日期" : "Start date",
       endDate: zh ? "截止日期" : "End date",
@@ -643,13 +647,13 @@ export function App() {
       detail: zh ? "商品/规格/备注" : "Product / spec / remark",
       qty: zh ? "数量" : "Qty",
       doc: zh ? "单据" : "Document",
-      payable: zh ? "应支付" : "Payable",
-      paid: zh ? "已支付" : "Paid",
+      payable: zh ? (purchase ? "采购金额" : "销售金额") : purchase ? "Purchase amt" : "Sales amt",
+      paid: zh ? (purchase ? "付款金额" : "收款金额") : purchase ? "Payment" : "Receipt",
       closingBalance: zh ? "结余" : "Balance",
       subtotal: zh ? "小计" : "Subtotal",
       closingBalanceTotal: zh ? "期末结余" : "Closing balance",
     };
-  }, [lang]);
+  }, [lang, mode]);
 
   const captureStatementImage = useCallback(async () => {
     if (!statementModel || !statementPicRef.current) {

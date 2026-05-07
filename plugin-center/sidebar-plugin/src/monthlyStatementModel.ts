@@ -1,5 +1,7 @@
 import type { LedgerRow } from "./ledgerTypes";
 
+export type StatementLedgerMode = "sales_receipt" | "purchase_payment";
+
 export type StatementTableLine = {
   lineDate: string;
   fundType: string;
@@ -57,6 +59,14 @@ function fmtSlash(d: string): string {
   return t ? t.replace(/-/g, "/") : "—";
 }
 
+function statementTitleSuffix(mode: StatementLedgerMode | undefined, lang: "zh-CN" | "en-US"): string {
+  if (!mode) return "";
+  if (lang === "zh-CN") {
+    return mode === "purchase_payment" ? "（采购-付款）" : "（销售-收款）";
+  }
+  return mode === "purchase_payment" ? " (Purchase–Payment)" : " (Sales–Receipt)";
+}
+
 /** 由明细对账 ledger 行构造「月度对账单」表格数据。 */
 export function buildMonthlyStatementModel(
   ledger: LedgerRow[],
@@ -64,7 +74,8 @@ export function buildMonthlyStatementModel(
   customerName: string,
   startDate: string,
   endDate: string,
-  reconcileDate: string
+  reconcileDate: string,
+  opts?: { mode?: StatementLedgerMode; lang?: "zh-CN" | "en-US" }
 ): MonthlyStatementModel | null {
   if (!ledger.length) return null;
 
@@ -171,7 +182,16 @@ export function buildMonthlyStatementModel(
   const totalDiff = subtotalClosingBalance;
 
   const ym = endDate.length >= 7 ? endDate.slice(0, 7).replace("-", "") : "";
-  const title = ym ? `月度对账单-${ym}` : "月度对账单";
+  const lang = opts?.lang ?? "zh-CN";
+  const suf = statementTitleSuffix(opts?.mode, lang);
+  const title =
+    lang === "zh-CN"
+      ? ym
+        ? `月度对账单-${ym}${suf}`
+        : `月度对账单${suf}`
+      : ym
+        ? `Monthly statement-${ym}${suf}`
+        : `Monthly statement${suf}`;
   const periodSubtitle = title;
   const statementNo = `DZD${ym || "000000"}${String(ledger.length).padStart(4, "0")}`;
 
